@@ -194,6 +194,13 @@ func (b *Broker) AssignTask(sessionID, workerType string, now time.Time) (Assign
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	// Keep scheduling fair and prevent one flaky worker from hoarding leases.
+	for _, lease := range b.leasedByTask {
+		if lease.SessionID == sessionID {
+			return Assignment{}, false, nil
+		}
+	}
+
 	for len(b.readyQueue) > 0 {
 		taskID := b.readyQueue[0]
 		b.readyQueue = b.readyQueue[1:]

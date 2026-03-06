@@ -150,7 +150,6 @@ func (s *server) handleNode(w http.ResponseWriter, r *http.Request) {
 	if sessionID == "" {
 		sessionID = mustRandomID(8)
 	}
-	s.broker.RegisterSession(sessionID)
 	helloSeen := false
 
 	helloAck := protocol.HelloAck{
@@ -187,8 +186,8 @@ func (s *server) handleNode(w http.ResponseWriter, r *http.Request) {
 			}
 			if hello.SessionID != "" {
 				sessionID = hello.SessionID
-				s.broker.RegisterSession(sessionID)
 			}
+			s.broker.RegisterSession(sessionID)
 			helloAck.SessionID = sessionID
 			helloAck.TargetJoules = s.broker.TargetJoules()
 			if err := conn.WriteJSON(helloAck); err != nil {
