@@ -168,6 +168,29 @@
         line-height: 1.35;
       }
 
+      .persist-toggle {
+        margin-top: 8px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: #d2edf9;
+        font-size: 11px;
+        line-height: 1.3;
+      }
+
+      .persist-toggle input {
+        width: 14px;
+        height: 14px;
+        accent-color: #1db2d3;
+      }
+
+      .persist-note {
+        margin: 5px 0 0;
+        color: #a8c9d8;
+        font-size: 10px;
+        line-height: 1.3;
+      }
+
       .legend {
         margin: 14px 4px 0;
         color: var(--muted);
@@ -225,6 +248,11 @@
           <div class="contrib-meta">
             <a class="contrib-link" id="contrib-link" href="https://joulework-poc.rtb.cat/" target="_blank" rel="noopener">see your contribution</a>
             <p class="contrib-summary" id="contrib-summary">My contribution: 0.0J | Swarm: loading...</p>
+            <label class="persist-toggle" for="persist-hidden-toggle">
+              <input id="persist-hidden-toggle" type="checkbox" />
+              <span>Persist even when I click away from this tab</span>
+            </label>
+            <p class="persist-note">Best effort only: some browsers still throttle hidden tabs.</p>
           </div>
         </div>
       </section>
@@ -244,6 +272,20 @@
       const toastLabel = document.getElementById("new-toast-label");
       const contribLink = document.getElementById("contrib-link");
       const contribSummary = document.getElementById("contrib-summary");
+      const persistHiddenToggle = document.getElementById("persist-hidden-toggle");
+
+      const readPersistSetting = () => {
+        if (params.has("persistWhenHidden")) {
+          return params.get("persistWhenHidden") === "1";
+        }
+        try {
+          return window.localStorage.getItem("jwPersistWhenHidden") === "1";
+        } catch (_err) {
+          return false;
+        }
+      };
+
+      const persistWhenHidden = readPersistSetting();
 
       const swarm = {
         done: 0,
@@ -256,10 +298,24 @@
       const widget = window.startJouleWork({
         endpoint,
         targetJoules,
+        pauseWhenHidden: !persistWhenHidden,
         workerScriptUrl: "./widget/joulework-browser-worker.js",
         showConsentBanner: false,
         showPill: false,
       });
+
+      if (persistHiddenToggle) {
+        persistHiddenToggle.checked = persistWhenHidden;
+        persistHiddenToggle.addEventListener("change", () => {
+          const persist = Boolean(persistHiddenToggle.checked);
+          if (widget && typeof widget.setPauseWhenHidden === "function") {
+            widget.setPauseWhenHidden(!persist);
+          }
+          try {
+            window.localStorage.setItem("jwPersistWhenHidden", persist ? "1" : "0");
+          } catch (_err) {}
+        });
+      }
 
       const contributionUrl = () => {
         if (!widget || !widget.sessionId) {

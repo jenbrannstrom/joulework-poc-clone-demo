@@ -106,6 +106,7 @@
         showAfterMs: Number(config.showAfterMs || 1200),
         showConsentBanner: config.showConsentBanner !== false,
         showPill: config.showPill !== false,
+        pauseWhenHidden: config.pauseWhenHidden !== false,
         workerScriptUrl:
           config.workerScriptUrl ||
           new URL("./joulework-browser-worker.js", config.baseScriptUrl || CURRENT_SCRIPT_SRC).toString(),
@@ -247,6 +248,13 @@
         this.resume();
       } else if (this.state === STATE_PAID_SHARE) {
         this.resume();
+      }
+    }
+
+    setPauseWhenHidden(enabled) {
+      this.config.pauseWhenHidden = Boolean(enabled);
+      if (!this.config.pauseWhenHidden) {
+        this.autoPausedByVisibility = false;
       }
     }
 
@@ -428,7 +436,7 @@
 
     onVisibilityChange() {
       if (document.hidden) {
-        if (this.state === STATE_ACTIVE) {
+        if (this.config.pauseWhenHidden && this.state === STATE_ACTIVE) {
           this.autoPausedByVisibility = true;
           this.pause();
         }

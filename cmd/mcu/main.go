@@ -674,7 +674,7 @@ const rootPageHTML = `<!doctype html>
           <div class="metric">
             <div class="metric-head">
               <span class="k">Leased</span>
-              <button class="info-dot" type="button" aria-label="Leased means tasks currently assigned to workers." data-tip="Tasks currently assigned to workers and still in-flight (not yet submitted).">i</button>
+              <button class="info-dot" type="button" aria-label="Leased means tasks currently assigned to workers." data-tip="Tasks currently assigned to workers and still in-flight (not yet submitted). If tasks are short, it often reads 0 between assignments.">i</button>
             </div>
             <span class="v" id="leased">0</span>
           </div>
