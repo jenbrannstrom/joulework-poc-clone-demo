@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "JouleWork Paywall Unlock POC",
+  "version": "0.1.0",
+  "description": "POC extension: contribute compute and unlock designated pages once MCU-verified joules reach target.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "https://joulework-poc.rtb.cat/*",
+    "https://joulework-demo.rtb.cat/*",
+    "http://joulework-demo.rtb.cat/*",
+    "https://jenbrannstrom.github.io/joulework-poc-clone-demo/*"
+  ],
+  "action": {
+    "default_title": "JouleWork POC",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://joulework-demo.rtb.cat/*",
+        "http://joulework-demo.rtb.cat/*",
+        "https://jenbrannstrom.github.io/joulework-poc-clone-demo/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["compute-worker.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

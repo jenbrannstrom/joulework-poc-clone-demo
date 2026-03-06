@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>JouleWork POC</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>JouleWork POC</h1>
+      <p class="sub">Contribute compute and unlock when server-verified target is reached.</p>
+
+      <section class="status">
+        <p><strong>State:</strong> <span id="state">-</span></p>
+        <p><strong>Session:</strong> <span id="session">-</span></p>
+        <p><strong>Joules:</strong> <span id="joules">-</span></p>
+        <p><strong>Tasks:</strong> <span id="tasks">-</span></p>
+        <p><strong>Unlock:</strong> <span id="unlock">-</span></p>
+      </section>
+
+      <div class="row">
+        <button id="start" type="button">Start</button>
+        <button id="pause" type="button">Pause</button>
+        <button id="resume" type="button">Resume</button>
+      </div>
+
+      <label class="toggle" for="persist-hidden">
+        <input id="persist-hidden" type="checkbox" />
+        Persist when tab hidden (best effort)
+      </label>
+
+      <div class="row row-small">
+        <button id="verify" type="button">Verify unlock</button>
+        <button id="refresh" type="button">Refresh</button>
+      </div>
+
+      <p id="message" class="msg"></p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

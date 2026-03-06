@@ -161,7 +161,18 @@ A plugin can come later for admin UX (on/off per page, consent copy, endpoint co
 - `internal/protocol/messages.go`: protocol structs/constants.
 - `web/widget/*`: embeddable browser widget + worker.
 - `web/gh-pages/*`: hosted demo page assets.
+- `web/extension/*`: unpacked Chrome extension POC (compute-gated paywall unlock).
 - `docs/PROTOCOL.md`: wire protocol reference.
+
+## Chrome Extension POC
+
+A POC extension is included at `web/extension`:
+
+- contributes compute from designated site tabs,
+- verifies contribution against MCU (`/demo/progress?sessionId=...`),
+- removes paywall overlays only after server-verified target joules.
+
+Install and usage steps: `web/extension/README.md`.
 
 ## Current Public Endpoints
 
