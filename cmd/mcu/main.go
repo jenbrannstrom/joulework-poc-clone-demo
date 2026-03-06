@@ -2,13 +2,17 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -27,6 +31,7 @@ import (
 type server struct {
 	broker         *engine.Broker
 	allowedOrigins map[string]struct{}
+	unlockSigner   *unlockTokenSigner
 	mu             sync.Mutex
 	activeWorkers  map[string]activeWorker
 	upgrader       websocket.Upgrader
@@ -40,18 +45,25 @@ type activeWorker struct {
 }
 
 func main() {
+	defaultUnlockSecret := strings.TrimSpace(os.Getenv("JW_UNLOCK_TOKEN_SECRET"))
+	if defaultUnlockSecret == "" {
+		defaultUnlockSecret = "joulework-poc-insecure-dev-secret"
+	}
 	var (
-		addr          = flag.String("addr", ":8080", "HTTP listen address")
-		chunkDir      = flag.String("chunk-dir", "./data/chunks", "Directory with chunk files")
-		resultDir     = flag.String("result-dir", "./data/results", "Directory to persist result files")
-		scanInterval  = flag.Duration("scan-interval", 2*time.Second, "How often to scan chunk directory")
-		reapInterval  = flag.Duration("reap-interval", 1*time.Second, "How often to requeue expired leases")
-		leaseTimeout  = flag.Duration("lease-timeout", 30*time.Second, "Lease timeout per task")
-		browserWatts  = flag.Float64("browser-watts", 12.0, "Estimated watts for browser workers")
-		localWatts    = flag.Float64("local-watts", 35.0, "Estimated watts for local workers")
-		targetJoules  = flag.Float64("target-joules", 20.0, "Target estimated joules per browser session")
-		maxResultSize = flag.Int("max-result-bytes", 1<<20, "Maximum accepted result payload bytes")
-		allowOrigins  = flag.String("allow-origins", "", "Comma-separated origin allowlist, empty allows all")
+		addr              = flag.String("addr", ":8080", "HTTP listen address")
+		chunkDir          = flag.String("chunk-dir", "./data/chunks", "Directory with chunk files")
+		resultDir         = flag.String("result-dir", "./data/results", "Directory to persist result files")
+		scanInterval      = flag.Duration("scan-interval", 2*time.Second, "How often to scan chunk directory")
+		reapInterval      = flag.Duration("reap-interval", 1*time.Second, "How often to requeue expired leases")
+		leaseTimeout      = flag.Duration("lease-timeout", 30*time.Second, "Lease timeout per task")
+		browserWatts      = flag.Float64("browser-watts", 12.0, "Estimated watts for browser workers")
+		localWatts        = flag.Float64("local-watts", 35.0, "Estimated watts for local workers")
+		targetJoules      = flag.Float64("target-joules", 20.0, "Target estimated joules per browser session")
+		maxResultSize     = flag.Int("max-result-bytes", 1<<20, "Maximum accepted result payload bytes")
+		allowOrigins      = flag.String("allow-origins", "", "Comma-separated origin allowlist, empty allows all")
+		unlockTokenSecret = flag.String("unlock-token-secret", defaultUnlockSecret, "HMAC secret used to sign demo unlock tokens")
+		unlockTokenTTL    = flag.Duration("unlock-token-ttl", 15*time.Minute, "TTL for signed demo unlock tokens")
+		unlockTokenIssuer = flag.String("unlock-token-issuer", "joulework-mcu", "Issuer value for signed demo unlock tokens")
 	)
 	flag.Parse()
 
@@ -74,6 +86,7 @@ func main() {
 	s := &server{
 		broker:         broker,
 		allowedOrigins: parseOrigins(*allowOrigins),
+		unlockSigner:   newUnlockTokenSigner([]byte(*unlockTokenSecret), *unlockTokenTTL, *unlockTokenIssuer),
 		activeWorkers:  make(map[string]activeWorker),
 	}
 	s.upgrader = websocket.Upgrader{
@@ -85,6 +98,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/demo/progress", s.handleDemoProgress)
+	mux.HandleFunc("/demo/unlock_token", s.handleDemoUnlockToken)
 	mux.HandleFunc("/node", s.handleNode)
 	mux.HandleFunc("/", s.handleRoot)
 
@@ -177,6 +191,7 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 			"endpoints": map[string]string{
 				"health":        "/health",
 				"demoProgress":  "/demo/progress",
+				"demoUnlock":    "/demo/unlock_token?sessionId=...",
 				"websocketNode": "/node?workerType=browser",
 				"demoPage":      "http://joulework-demo.rtb.cat/",
 			},
@@ -240,6 +255,71 @@ func (s *server) handleDemoProgress(w http.ResponseWriter, r *http.Request) {
 		"recentCompletions": s.broker.RecentCompletions(16),
 		"pi":                s.broker.PiSnapshot(),
 		"now":               time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (s *server) handleDemoUnlockToken(w http.ResponseWriter, r *http.Request) {
+	if s.writeCORSHeaders(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	sessionID := strings.TrimSpace(r.URL.Query().Get("sessionId"))
+	if sessionID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":       false,
+			"eligible": false,
+			"reason":   "sessionId_required",
+		})
+		return
+	}
+
+	siteHost := normalizeSiteHost(r.URL.Query().Get("siteHost"))
+	sessionJoules := s.broker.SessionJoules(sessionID)
+	targetJoules := s.broker.TargetJoules()
+
+	if sessionJoules < targetJoules {
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":            false,
+			"eligible":      false,
+			"reason":        "target_not_reached",
+			"sessionId":     sessionID,
+			"siteHost":      siteHost,
+			"sessionJoules": sessionJoules,
+			"targetJoules":  targetJoules,
+		})
+		return
+	}
+
+	token, claims, err := s.unlockSigner.Issue(sessionID, siteHost, sessionJoules, targetJoules)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":       false,
+			"eligible": false,
+			"reason":   "token_issue_failed",
+		})
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":            true,
+		"eligible":      true,
+		"sessionId":     sessionID,
+		"siteHost":      siteHost,
+		"sessionJoules": sessionJoules,
+		"targetJoules":  targetJoules,
+		"tokenType":     claims.Version,
+		"token":         token,
+		"issuedAt":      time.Unix(claims.IssuedAt, 0).UTC().Format(time.RFC3339),
+		"expiresAt":     time.Unix(claims.ExpiresAt, 0).UTC().Format(time.RFC3339),
 	})
 }
 
@@ -420,6 +500,101 @@ func parseOrigins(value string) map[string]struct{} {
 		origins[strings.ToLower(trimmed)] = struct{}{}
 	}
 	return origins
+}
+
+type unlockTokenSigner struct {
+	secret []byte
+	ttl    time.Duration
+	issuer string
+}
+
+type unlockTokenClaims struct {
+	Version      string  `json:"v"`
+	Issuer       string  `json:"iss"`
+	SessionID    string  `json:"sid"`
+	SiteHost     string  `json:"site,omitempty"`
+	Joules       float64 `json:"joules"`
+	TargetJoules float64 `json:"targetJoules"`
+	IssuedAt     int64   `json:"iat"`
+	ExpiresAt    int64   `json:"exp"`
+}
+
+func newUnlockTokenSigner(secret []byte, ttl time.Duration, issuer string) *unlockTokenSigner {
+	if ttl <= 0 {
+		ttl = 15 * time.Minute
+	}
+	issuer = strings.TrimSpace(issuer)
+	if issuer == "" {
+		issuer = "joulework-mcu"
+	}
+
+	trimmedSecret := strings.TrimSpace(string(secret))
+	if trimmedSecret == "" {
+		trimmedSecret = "joulework-poc-insecure-dev-secret"
+	}
+	return &unlockTokenSigner{
+		secret: []byte(trimmedSecret),
+		ttl:    ttl,
+		issuer: issuer,
+	}
+}
+
+func (s *unlockTokenSigner) Issue(sessionID, siteHost string, joules, targetJoules float64) (string, unlockTokenClaims, error) {
+	now := time.Now().UTC()
+	claims := unlockTokenClaims{
+		Version:      "JWP1",
+		Issuer:       s.issuer,
+		SessionID:    sessionID,
+		SiteHost:     siteHost,
+		Joules:       joules,
+		TargetJoules: targetJoules,
+		IssuedAt:     now.Unix(),
+		ExpiresAt:    now.Add(s.ttl).Unix(),
+	}
+
+	payloadJSON, err := json.Marshal(claims)
+	if err != nil {
+		return "", unlockTokenClaims{}, fmt.Errorf("marshal claims: %w", err)
+	}
+	payloadPart := base64.RawURLEncoding.EncodeToString(payloadJSON)
+
+	mac := hmac.New(sha256.New, s.secret)
+	_, _ = mac.Write([]byte(payloadPart))
+	signaturePart := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+
+	token := "jwp1." + payloadPart + "." + signaturePart
+	return token, claims, nil
+}
+
+func normalizeSiteHost(raw string) string {
+	host := strings.ToLower(strings.TrimSpace(raw))
+	if host == "" {
+		return ""
+	}
+	if strings.Contains(host, "://") {
+		if parsed, err := url.Parse(host); err == nil {
+			host = parsed.Host
+		}
+	}
+	if idx := strings.IndexAny(host, "/?#"); idx >= 0 {
+		host = host[:idx]
+	}
+	if normalized, _, err := net.SplitHostPort(host); err == nil {
+		host = normalized
+	}
+	if len(host) > 120 {
+		host = host[:120]
+	}
+	if host == "" {
+		return ""
+	}
+	for _, ch := range host {
+		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '.' || ch == '-' {
+			continue
+		}
+		return ""
+	}
+	return host
 }
 
 func (s *server) trackActiveWorker(connID, sessionID, workerType string) {

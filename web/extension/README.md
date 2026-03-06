@@ -9,7 +9,7 @@ Unpacked Chrome extension POC that:
 ## Scope (POC)
 
 - This is not anti-abuse complete.
-- Unlock is gated by server verification (`/demo/progress?sessionId=...`), not only local counters.
+- Unlock is gated by server-issued signed token (`/demo/unlock_token?sessionId=...`), with a progress fallback for older MCU builds.
 - Determined attackers can still reverse engineer clients in a POC setup.
 
 ## Files

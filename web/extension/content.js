@@ -12,6 +12,7 @@
   const DEFAULT_CONFIG = {
     endpoint: "wss://joulework-poc.rtb.cat/node?workerType=browser",
     progressEndpoint: "https://joulework-poc.rtb.cat/demo/progress",
+    unlockTokenEndpoint: "https://joulework-poc.rtb.cat/demo/unlock_token",
     targetJoules: 20,
     pauseWhenHidden: true,
     progressPollMs: 4500,
@@ -69,6 +70,8 @@
       this.lastError = "";
       this.lastServerJoules = 0;
       this.lastVerifiedAt = 0;
+      this.unlockToken = "";
+      this.unlockTokenExpiresAt = 0;
 
       this.socket = null;
       this.worker = null;
@@ -412,6 +415,65 @@
         return false;
       }
 
+      const unlock = await this.requestUnlockToken();
+      if (unlock.eligible) {
+        if (unlock.token) {
+          this.unlockToken = String(unlock.token);
+          this.unlockTokenExpiresAt = Number(unlock.expiresAtMs || 0);
+        }
+        this.unlockPage();
+        this.unlocked = true;
+        return true;
+      }
+      return false;
+    }
+
+    async requestUnlockToken() {
+      const separator = this.config.unlockTokenEndpoint.includes("?") ? "&" : "?";
+      const url =
+        `${this.config.unlockTokenEndpoint}${separator}` +
+        `sessionId=${encodeURIComponent(this.sessionId)}&siteHost=${encodeURIComponent(location.host)}`;
+
+      const response = await fetch(url, { cache: "no-store" });
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch (_error) {
+        payload = {};
+      }
+
+      if (response.status === 404) {
+        return this.requestUnlockByProgressFallback();
+      }
+
+      if (typeof payload.sessionJoules === "number") {
+        this.lastServerJoules = payload.sessionJoules;
+      }
+      if (typeof payload.targetJoules === "number" && payload.targetJoules > 0) {
+        this.config.targetJoules = payload.targetJoules;
+      }
+      this.lastVerifiedAt = Date.now();
+
+      if (payload && payload.eligible === true && typeof payload.token === "string" && payload.token !== "") {
+        const expiresAtMs = Date.parse(String(payload.expiresAt || ""));
+        return {
+          eligible: true,
+          token: payload.token,
+          expiresAtMs: Number.isNaN(expiresAtMs) ? 0 : expiresAtMs,
+        };
+      }
+
+      if (response.status === 403 || payload.reason === "target_not_reached") {
+        return { eligible: false };
+      }
+
+      if (!response.ok) {
+        throw new Error(`unlock token HTTP ${response.status}`);
+      }
+      return { eligible: false };
+    }
+
+    async requestUnlockByProgressFallback() {
       const separator = this.config.progressEndpoint.includes("?") ? "&" : "?";
       const url = `${this.config.progressEndpoint}${separator}sessionId=${encodeURIComponent(this.sessionId)}`;
       const response = await fetch(url, { cache: "no-store" });
@@ -421,14 +483,11 @@
       const payload = await response.json();
       const joules = Number((payload.mySession || {}).joulesEst || 0);
       this.lastServerJoules = joules;
-      this.lastVerifiedAt = Date.now();
-
-      if (joules >= Number(this.config.targetJoules || 20)) {
-        this.unlockPage();
-        this.unlocked = true;
-        return true;
+      if (typeof payload.targetJoules === "number" && payload.targetJoules > 0) {
+        this.config.targetJoules = payload.targetJoules;
       }
-      return false;
+      this.lastVerifiedAt = Date.now();
+      return { eligible: joules >= Number(this.config.targetJoules || 20) };
     }
 
     ensureDemoOverlay() {
@@ -521,6 +580,8 @@
         targetJoules: this.config.targetJoules,
         tasksCompleted: this.tasksCompleted,
         pauseWhenHidden: this.config.pauseWhenHidden,
+        unlockTokenIssued: this.unlockToken !== "",
+        unlockTokenExpiresAt: this.unlockTokenExpiresAt,
         lastVerifiedAt: this.lastVerifiedAt,
         lastError: this.lastError,
       };

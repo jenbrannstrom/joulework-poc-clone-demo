@@ -136,8 +136,9 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 22px;
+        min-width: 28px;
         height: 22px;
+        padding: 0 4px;
         border-radius: 50%;
         background: #13d4f5;
         color: #062027;
@@ -242,7 +243,7 @@
 
         <div class="new-toast-anchor">
           <button class="new-toast" id="new-toast-label" type="button">
-            <span class="badge">J</span>
+            <span class="badge">⚡J</span>
             <span>donate some Compute power to Brian - you can give us 20% of your devices compute power to help fnud our research</span>
           </button>
           <div class="contrib-meta">
@@ -351,24 +352,24 @@
         if (widget.state === "active") {
           toastLabel.classList.add("active");
           toastLabel.innerHTML =
-            '<span class="badge">J</span><span>Compute Payment: ON - ' +
+            '<span class="badge">⚡J</span><span>You are now donating Compute Power - ' +
             widget.sessionJoules.toFixed(1) +
             "J - Click to Pause</span>";
         } else if (widget.state === "paid_share") {
           toastLabel.classList.add("paid");
           toastLabel.innerHTML =
-            '<span class="badge">J</span><span>Thanks - Paid Share Reached (' +
+            '<span class="badge">⚡J</span><span>Thanks - Paid Share Reached (' +
             widget.sessionJoules.toFixed(1) +
             "J) - Click to Keep Helping</span>";
         } else if (widget.state === "paused") {
           toastLabel.classList.add("paused");
           toastLabel.innerHTML =
-            '<span class="badge">J</span><span>Compute Payment: Paused - ' +
+            '<span class="badge">⚡J</span><span>Compute Payment: Paused - ' +
             widget.sessionJoules.toFixed(1) +
             "J - Click to Resume</span>";
         } else {
           toastLabel.innerHTML =
-            '<span class="badge">J</span><span>donate some Compute power to Brian - you can give us 20% of your devices compute power to help fnud our research</span>';
+            '<span class="badge">⚡J</span><span>donate some Compute power to Brian - you can give us 20% of your devices compute power to help fnud our research</span>';
         }
         updateContributionSummary();
       };
