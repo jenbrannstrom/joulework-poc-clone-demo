@@ -85,6 +85,7 @@ func main() {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/demo/progress", s.handleDemoProgress)
 	mux.HandleFunc("/node", s.handleNode)
+	mux.HandleFunc("/", s.handleRoot)
 
 	httpSrv := &http.Server{
 		Addr:    *addr,
@@ -151,6 +152,32 @@ func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"leased":   stats.LeasedCount,
 		"done":     stats.DoneCount,
 		"sessions": stats.SessionCount,
+	})
+}
+
+func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	if s.writeCORSHeaders(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":      true,
+		"service": "joulework-mcu",
+		"message": "API and worker endpoint. Use the demo page for UI.",
+		"endpoints": map[string]string{
+			"health":        "/health",
+			"demoProgress":  "/demo/progress",
+			"websocketNode": "/node?workerType=browser",
+			"demoPage":      "http://joulework-demo.rtb.cat/",
+		},
 	})
 }
 
