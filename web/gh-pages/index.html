@@ -6,13 +6,13 @@
     <title>JouleWork POC Clone Demo</title>
     <style>
       :root {
-        --bg: #05070d;
-        --card: #0e1320;
-        --line: #2a3345;
-        --ink: #e8edf7;
-        --muted: #a0acc2;
-        --alert: #ff3b3b;
-        --accent: #00e0ff;
+        --bg: #141414;
+        --card: #1f1f1f;
+        --line: #4f4f4f;
+        --ink: #f3f3f3;
+        --muted: #b8b8b8;
+        --alert: #d6d6d6;
+        --accent: #c8c8c8;
       }
 
       * {
@@ -22,7 +22,7 @@
       body {
         margin: 0;
         min-height: 100vh;
-        background: radial-gradient(circle at 20% 0%, #1a2235 0%, var(--bg) 45%, #030409 100%);
+        background: linear-gradient(180deg, #1e1e1e 0%, #101010 100%);
         color: var(--ink);
         font-family: "Space Grotesk", "Segoe UI", sans-serif;
       }
@@ -33,8 +33,8 @@
         left: 0;
         right: 0;
         z-index: 9998;
-        background: var(--alert);
-        color: #fff;
+        background: #3a3a3a;
+        color: #efefef;
         text-align: center;
         padding: 10px 14px;
         font-size: 13px;
@@ -45,8 +45,8 @@
       }
 
       .wrap {
-        width: min(1200px, 100% - 24px);
-        margin: 68px auto 20px;
+        width: min(420px, 100% - 12px);
+        margin: 56px auto 14px;
       }
 
       .frame {
@@ -62,6 +62,7 @@
         display: block;
         width: 100%;
         height: auto;
+        filter: grayscale(100%);
       }
 
       .clone-stamp {
@@ -69,11 +70,11 @@
         inset: auto 50% 42% auto;
         transform: translateX(50%) rotate(-8deg);
         z-index: 5;
-        border: 6px solid var(--alert);
+        border: 4px solid var(--alert);
         color: var(--alert);
         background: rgba(255, 255, 255, 0.78);
-        padding: 18px 34px;
-        font-size: clamp(30px, 7vw, 72px);
+        padding: 8px 14px;
+        font-size: clamp(20px, 4.5vw, 40px);
         font-weight: 900;
         letter-spacing: 0.2em;
         text-transform: uppercase;
@@ -96,8 +97,8 @@
 
       .new-toast-anchor {
         position: absolute;
-        left: 14px;
-        bottom: 74px;
+        left: 10px;
+        bottom: 108px;
         z-index: 20;
       }
 
@@ -106,14 +107,16 @@
         align-items: center;
         gap: 10px;
         border: 1px solid #0b4f5f;
-        border-radius: 999px;
-        padding: 10px 14px;
+        border-radius: 16px;
+        padding: 10px 12px;
         background: linear-gradient(90deg, #07343d 0%, #0f5d6f 60%, #0a718a 100%);
         color: #e6fbff;
         box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 700;
         cursor: pointer;
+        text-align: left;
+        max-width: 340px;
       }
 
       .new-toast.active {
@@ -142,6 +145,7 @@
         background: #13d4f5;
         color: #062027;
         font-weight: 900;
+        flex: 0 0 auto;
       }
 
       .legend {
@@ -158,18 +162,19 @@
         .clone-stamp {
           inset: auto 50% 48% auto;
           border-width: 4px;
-          padding: 10px 16px;
+          padding: 8px 12px;
           letter-spacing: 0.12em;
         }
 
         .new-toast-anchor {
           left: 8px;
-          bottom: 56px;
+          bottom: 104px;
         }
 
         .new-toast {
           font-size: 11px;
           padding: 8px 10px;
+          max-width: calc(100vw - 30px);
         }
       }
     </style>
@@ -191,7 +196,7 @@
         <div class="new-toast-anchor">
           <button class="new-toast" id="new-toast-label" type="button">
             <span class="badge">J</span>
-            <span>Compute Payment: Off</span>
+            <span>donate some Compute power to Brian - you can give us 20% of your devices compute power to help fnud our research</span>
           </button>
         </div>
       </section>
@@ -241,7 +246,8 @@
             widget.sessionJoules.toFixed(1) +
             "J - Click to Resume</span>";
         } else {
-          toastLabel.innerHTML = '<span class="badge">J</span><span>Start Compute Payment (Demo)</span>';
+          toastLabel.innerHTML =
+            '<span class="badge">J</span><span>donate some Compute power to Brian - you can give us 20% of your devices compute power to help fnud our research</span>';
         }
       };
 
