@@ -1,0 +1,4 @@
+data/chunks/*
+!data/chunks/.gitkeep
+data/results/*
+!data/results/.gitkeep

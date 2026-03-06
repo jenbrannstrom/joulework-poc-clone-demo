@@ -1,0 +1,49 @@
+services:
+  mcu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: distri-pico:mcu
+    command:
+      - -addr
+      - :8080
+      - -chunk-dir
+      - /app/data/chunks
+      - -result-dir
+      - /app/data/results
+      - -target-joules
+      - "20"
+      - -allow-origins
+      - ${ALLOW_ORIGINS:-http://127.0.0.1:9000,http://localhost:9000}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data/chunks:/app/data/chunks
+      - ./data/results:/app/data/results
+
+  local-worker:
+    image: distri-pico:mcu
+    depends_on:
+      - mcu
+    command:
+      - /usr/local/bin/local-worker
+      - -ws-url
+      - ws://mcu:8080/node?workerType=local
+    restart: unless-stopped
+    profiles:
+      - worker
+
+  web-demo:
+    image: python:3.12-alpine
+    working_dir: /site
+    command:
+      - python3
+      - -m
+      - http.server
+      - "9000"
+      - -d
+      - /site/web
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./:/site:ro
