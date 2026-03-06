@@ -21,6 +21,7 @@ Tiny JouleWork POC scaffold: MCU broker, local worker, and browser widget with e
 - `web/demo/index.html`: sample page embedding widget
 - `scripts/seed_chunks.sh`: creates demo chunk files
 - `scripts/seed_pi_chunks.sh`: creates PI demo chunks (`pi_leibniz`)
+  - args: `chunk_dir task_count terms_per_task [start_term] [prefix]`
 
 ## Quick Start
 
