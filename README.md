@@ -84,6 +84,7 @@ docker compose --profile worker up -d local-worker
 - On opt-in, shows active pill with tasks + estimated joules.
 - If estimated joules reach target, pill turns green: `Thanks - you paid your share`.
 - No background compute when tab hidden: auto-pauses on `document.hidden`.
+- For shared demos, backend live progress is available at `GET /demo/progress` (queue counts, active workers, leases, recent completions).
 
 ## POC Notes
 

@@ -12,7 +12,9 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,7 +26,16 @@ import (
 type server struct {
 	broker         *engine.Broker
 	allowedOrigins map[string]struct{}
+	mu             sync.Mutex
+	activeWorkers  map[string]activeWorker
 	upgrader       websocket.Upgrader
+}
+
+type activeWorker struct {
+	SessionID   string    `json:"sessionId"`
+	WorkerType  string    `json:"workerType"`
+	ConnectedAt time.Time `json:"connectedAt"`
+	LastSeenAt  time.Time `json:"lastSeenAt"`
 }
 
 func main() {
@@ -62,6 +73,7 @@ func main() {
 	s := &server{
 		broker:         broker,
 		allowedOrigins: parseOrigins(*allowOrigins),
+		activeWorkers:  make(map[string]activeWorker),
 	}
 	s.upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -71,6 +83,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/demo/progress", s.handleDemoProgress)
 	mux.HandleFunc("/node", s.handleNode)
 
 	httpSrv := &http.Server{
@@ -125,15 +138,63 @@ func main() {
 	}
 }
 
-func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if s.writeCORSHeaders(w, r) {
+		return
+	}
 	stats := s.broker.Stats()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"ok":       true,
+		"total":    stats.TotalCount,
 		"ready":    stats.ReadyCount,
 		"leased":   stats.LeasedCount,
 		"done":     stats.DoneCount,
 		"sessions": stats.SessionCount,
+	})
+}
+
+func (s *server) handleDemoProgress(w http.ResponseWriter, r *http.Request) {
+	if s.writeCORSHeaders(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	stats := s.broker.Stats()
+	activeWorkers := s.snapshotActiveWorkers()
+	activeBrowser := 0
+	activeLocal := 0
+	for _, worker := range activeWorkers {
+		switch worker.WorkerType {
+		case protocol.WorkerTypeBrowser:
+			activeBrowser++
+		default:
+			activeLocal++
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok": true,
+		"queue": map[string]any{
+			"total":  stats.TotalCount,
+			"ready":  stats.ReadyCount,
+			"leased": stats.LeasedCount,
+			"done":   stats.DoneCount,
+		},
+		"workers": map[string]any{
+			"active":          len(activeWorkers),
+			"activeBrowser":   activeBrowser,
+			"activeLocal":     activeLocal,
+			"knownSessions":   stats.SessionCount,
+			"activeSnapshots": activeWorkers,
+		},
+		"activeLeases":      s.broker.ActiveLeases(12),
+		"recentCompletions": s.broker.RecentCompletions(16),
+		"now":               time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -143,7 +204,14 @@ func (s *server) handleNode(w http.ResponseWriter, r *http.Request) {
 		log.Printf("websocket upgrade: %v", err)
 		return
 	}
-	defer conn.Close()
+	connID := mustRandomID(6)
+	tracked := false
+	defer func() {
+		if tracked {
+			s.unregisterActiveWorker(connID)
+		}
+		conn.Close()
+	}()
 
 	workerType := normalizeWorkerType(r.URL.Query().Get("workerType"))
 	sessionID := r.URL.Query().Get("sessionId")
@@ -188,6 +256,8 @@ func (s *server) handleNode(w http.ResponseWriter, r *http.Request) {
 				sessionID = hello.SessionID
 			}
 			s.broker.RegisterSession(sessionID)
+			s.trackActiveWorker(connID, sessionID, workerType)
+			tracked = true
 			helloAck.SessionID = sessionID
 			helloAck.TargetJoules = s.broker.TargetJoules()
 			if err := conn.WriteJSON(helloAck); err != nil {
@@ -200,6 +270,7 @@ func (s *server) handleNode(w http.ResponseWriter, r *http.Request) {
 				s.writeError(conn, "hello required before requesting tasks")
 				continue
 			}
+			s.trackActiveWorker(connID, sessionID, workerType)
 			assignment, ok, err := s.broker.AssignTask(sessionID, workerType, time.Now())
 			if err != nil {
 				s.writeError(conn, "task assignment failed")
@@ -228,6 +299,7 @@ func (s *server) handleNode(w http.ResponseWriter, r *http.Request) {
 				s.writeError(conn, "hello required before submitting results")
 				continue
 			}
+			s.trackActiveWorker(connID, sessionID, workerType)
 			var req protocol.SubmitResult
 			if err := json.Unmarshal(payload, &req); err != nil {
 				s.writeError(conn, "invalid submit_result")
@@ -258,6 +330,33 @@ func (s *server) checkOrigin(r *http.Request) bool {
 	if origin == "" {
 		return true
 	}
+	return s.originAllowed(origin)
+}
+
+func (s *server) writeCORSHeaders(w http.ResponseWriter, r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin != "" {
+		if len(s.allowedOrigins) == 0 || s.originAllowed(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
+	} else if len(s.allowedOrigins) == 0 {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+	}
+
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.WriteHeader(http.StatusNoContent)
+		return true
+	}
+	return false
+}
+
+func (s *server) originAllowed(origin string) bool {
+	if len(s.allowedOrigins) == 0 {
+		return true
+	}
 	u, err := url.Parse(origin)
 	if err != nil {
 		return false
@@ -276,6 +375,44 @@ func parseOrigins(value string) map[string]struct{} {
 		origins[strings.ToLower(trimmed)] = struct{}{}
 	}
 	return origins
+}
+
+func (s *server) trackActiveWorker(connID, sessionID, workerType string) {
+	now := time.Now().UTC()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, ok := s.activeWorkers[connID]
+	if !ok {
+		existing.ConnectedAt = now
+	}
+	existing.LastSeenAt = now
+	existing.SessionID = sessionID
+	existing.WorkerType = workerType
+	s.activeWorkers[connID] = existing
+}
+
+func (s *server) unregisterActiveWorker(connID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.activeWorkers, connID)
+}
+
+func (s *server) snapshotActiveWorkers() []activeWorker {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.activeWorkers) == 0 {
+		return nil
+	}
+	snapshots := make([]activeWorker, 0, len(s.activeWorkers))
+	for _, worker := range s.activeWorkers {
+		snapshots = append(snapshots, worker)
+	}
+	sort.Slice(snapshots, func(i, j int) bool {
+		return snapshots[i].LastSeenAt.After(snapshots[j].LastSeenAt)
+	})
+	return snapshots
 }
 
 func normalizeWorkerType(workerType string) string {

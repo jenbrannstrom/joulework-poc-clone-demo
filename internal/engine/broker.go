@@ -63,7 +63,25 @@ type ResultRecord struct {
 	SubmittedAt    time.Time `json:"submittedAt"`
 }
 
+type CompletionSnapshot struct {
+	TaskID         string    `json:"taskId"`
+	SessionID      string    `json:"sessionId"`
+	WorkerType     string    `json:"workerType"`
+	ElapsedMs      int64     `json:"elapsedMs"`
+	JoulesDeltaEst float64   `json:"joulesDeltaEst"`
+	SubmittedAt    time.Time `json:"submittedAt"`
+}
+
+type LeaseSnapshot struct {
+	TaskID     string    `json:"taskId"`
+	SessionID  string    `json:"sessionId"`
+	WorkerType string    `json:"workerType"`
+	AssignedAt time.Time `json:"assignedAt"`
+	ExpiresAt  time.Time `json:"expiresAt"`
+}
+
 type Stats struct {
+	TotalCount   int
 	ReadyCount   int
 	LeasedCount  int
 	DoneCount    int
@@ -80,6 +98,7 @@ type Broker struct {
 	leasedByTask  map[string]Lease
 	done          map[string]struct{}
 	sessionJoules map[string]float64
+	recentResults []CompletionSnapshot
 }
 
 func NewBroker(cfg Config) (*Broker, error) {
@@ -362,6 +381,17 @@ func (b *Broker) SubmitResult(sessionID, workerType string, req protocol.SubmitR
 
 	sessionTotal := b.sessionJoules[sessionID] + joulesDelta
 	b.sessionJoules[sessionID] = sessionTotal
+	b.recentResults = append(b.recentResults, CompletionSnapshot{
+		TaskID:         req.TaskID,
+		SessionID:      sessionID,
+		WorkerType:     workerType,
+		ElapsedMs:      req.ElapsedMs,
+		JoulesDeltaEst: joulesDelta,
+		SubmittedAt:    now.UTC(),
+	})
+	if len(b.recentResults) > 64 {
+		b.recentResults = append([]CompletionSnapshot(nil), b.recentResults[len(b.recentResults)-64:]...)
+	}
 
 	ack.Accepted = true
 	ack.JoulesDeltaEst = joulesDelta
@@ -374,11 +404,56 @@ func (b *Broker) Stats() Stats {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return Stats{
+		TotalCount:   len(b.done) + len(b.leasedByTask) + len(b.readyQueue),
 		ReadyCount:   len(b.readyQueue),
 		LeasedCount:  len(b.leasedByTask),
 		DoneCount:    len(b.done),
 		SessionCount: len(b.sessionJoules),
 	}
+}
+
+func (b *Broker) RecentCompletions(limit int) []CompletionSnapshot {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if len(b.recentResults) == 0 {
+		return nil
+	}
+	n := len(b.recentResults)
+	if limit <= 0 || limit > n {
+		limit = n
+	}
+	out := make([]CompletionSnapshot, 0, limit)
+	for i := 0; i < limit; i++ {
+		out = append(out, b.recentResults[n-1-i])
+	}
+	return out
+}
+
+func (b *Broker) ActiveLeases(limit int) []LeaseSnapshot {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if len(b.leasedByTask) == 0 {
+		return nil
+	}
+	leases := make([]LeaseSnapshot, 0, len(b.leasedByTask))
+	for _, lease := range b.leasedByTask {
+		leases = append(leases, LeaseSnapshot{
+			TaskID:     lease.TaskID,
+			SessionID:  lease.SessionID,
+			WorkerType: lease.WorkerType,
+			AssignedAt: lease.AssignedAt,
+			ExpiresAt:  lease.ExpiresAt,
+		})
+	}
+	sort.Slice(leases, func(i, j int) bool {
+		return leases[i].AssignedAt.After(leases[j].AssignedAt)
+	})
+	if limit > 0 && len(leases) > limit {
+		leases = leases[:limit]
+	}
+	return leases
 }
 
 func (b *Broker) RegisterSession(sessionID string) {

@@ -158,6 +158,96 @@
         color: var(--accent);
       }
 
+      .live-panel {
+        margin: 12px 2px 0;
+        border: 1px solid #34535b;
+        border-radius: 14px;
+        background: #111a1d;
+        padding: 10px 12px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+      }
+
+      .live-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 8px;
+        color: #e5f8fc;
+      }
+
+      .live-head strong {
+        font-size: 13px;
+      }
+
+      .live-head span {
+        font-size: 11px;
+        color: #98b8bf;
+      }
+
+      .live-grid {
+        margin-top: 8px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+      }
+
+      .metric {
+        border: 1px solid #2a444c;
+        border-radius: 10px;
+        padding: 7px 8px;
+        background: #0e1518;
+      }
+
+      .metric .k {
+        display: block;
+        color: #9fc0c8;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .metric .v {
+        display: block;
+        margin-top: 2px;
+        color: #e9fcff;
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      .live-note {
+        margin: 8px 0 2px;
+        color: #95c5cf;
+        font-size: 12px;
+      }
+
+      .live-list-block {
+        margin-top: 8px;
+      }
+
+      .live-list-title {
+        color: #9dc1c8;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .live-list {
+        margin: 4px 0 0;
+        padding: 0;
+        list-style: none;
+        color: #e8f4f7;
+        font-size: 12px;
+      }
+
+      .live-list li {
+        border-top: 1px solid rgba(130, 167, 176, 0.18);
+        padding: 5px 0;
+      }
+
+      .live-list li:first-child {
+        border-top: 0;
+      }
+
       @media (max-width: 800px) {
         .clone-stamp {
           inset: auto 50% 48% auto;
@@ -201,6 +291,36 @@
         </div>
       </section>
 
+      <section class="live-panel" id="live-panel">
+        <div class="live-head">
+          <strong>Live MCU Work Feed</strong>
+          <span id="live-updated">waiting for backend...</span>
+        </div>
+
+        <div class="live-grid">
+          <div class="metric"><span class="k">Done</span><span class="v" id="metric-done">0</span></div>
+          <div class="metric"><span class="k">Leased</span><span class="v" id="metric-leased">0</span></div>
+          <div class="metric"><span class="k">Ready</span><span class="v" id="metric-ready">0</span></div>
+          <div class="metric"><span class="k">Workers</span><span class="v" id="metric-workers">0</span></div>
+        </div>
+
+        <p class="live-note" id="live-note">Shows real chunks completed by connected workers.</p>
+
+        <div class="live-list-block">
+          <div class="live-list-title">Recent Completed Chunks</div>
+          <ul class="live-list" id="recent-list">
+            <li>No completions yet.</li>
+          </ul>
+        </div>
+
+        <div class="live-list-block">
+          <div class="live-list-title">Active Leases</div>
+          <ul class="live-list" id="leases-list">
+            <li>No active leases.</li>
+          </ul>
+        </div>
+      </section>
+
       <p class="legend">
         WebSocket endpoint is set by query param <code>?endpoint=wss://...</code>.
         Default points to <code>wss://joulework-poc.rtb.cat/node?workerType=browser</code>.
@@ -212,7 +332,16 @@
       const params = new URLSearchParams(window.location.search);
       const endpoint = params.get("endpoint") || "wss://joulework-poc.rtb.cat/node?workerType=browser";
       const targetJoules = Number(params.get("targetJoules") || "20");
+      const progressEndpoint = params.get("progress") || "https://joulework-poc.rtb.cat/demo/progress";
       const toastLabel = document.getElementById("new-toast-label");
+      const metricDone = document.getElementById("metric-done");
+      const metricLeased = document.getElementById("metric-leased");
+      const metricReady = document.getElementById("metric-ready");
+      const metricWorkers = document.getElementById("metric-workers");
+      const recentList = document.getElementById("recent-list");
+      const leasesList = document.getElementById("leases-list");
+      const liveNote = document.getElementById("live-note");
+      const liveUpdated = document.getElementById("live-updated");
 
       const widget = window.startJouleWork({
         endpoint,
@@ -264,8 +393,98 @@
         }
       });
 
+      const elapsedAgo = (iso) => {
+        if (!iso) {
+          return "";
+        }
+        const value = Date.parse(iso);
+        if (Number.isNaN(value)) {
+          return "";
+        }
+        const diffSec = Math.max(0, Math.round((Date.now() - value) / 1000));
+        if (diffSec < 60) {
+          return `${diffSec}s ago`;
+        }
+        const mins = Math.floor(diffSec / 60);
+        if (mins < 60) {
+          return `${mins}m ago`;
+        }
+        return `${Math.floor(mins / 60)}h ago`;
+      };
+
+      const renderList = (root, items, fallbackText) => {
+        if (!root) {
+          return;
+        }
+        root.innerHTML = "";
+        if (!Array.isArray(items) || items.length === 0) {
+          const li = document.createElement("li");
+          li.textContent = fallbackText;
+          root.appendChild(li);
+          return;
+        }
+        items.forEach((text) => {
+          const li = document.createElement("li");
+          li.textContent = text;
+          root.appendChild(li);
+        });
+      };
+
+      const refreshProgress = async () => {
+        try {
+          const response = await fetch(progressEndpoint, { cache: "no-store" });
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const payload = await response.json();
+          const queue = payload.queue || {};
+          const workers = payload.workers || {};
+          const total = Number(queue.total || 0);
+          const done = Number(queue.done || 0);
+          const leased = Number(queue.leased || 0);
+          const ready = Number(queue.ready || 0);
+          const activeWorkers = Number(workers.active || 0);
+          const browserWorkers = Number(workers.activeBrowser || 0);
+          const localWorkers = Number(workers.activeLocal || 0);
+
+          metricDone.textContent = String(done);
+          metricLeased.textContent = String(leased);
+          metricReady.textContent = String(ready);
+          metricWorkers.textContent = String(activeWorkers);
+
+          const recentItems = (payload.recentCompletions || []).slice(0, 5).map((item) => {
+            const task = item.taskId || "task";
+            const type = item.workerType || "worker";
+            const elapsed = Number(item.elapsedMs || 0);
+            const age = elapsedAgo(item.submittedAt);
+            return `${task} via ${type} (${elapsed}ms) ${age}`.trim();
+          });
+          renderList(recentList, recentItems, "No completions yet.");
+
+          const leaseItems = (payload.activeLeases || []).slice(0, 5).map((item) => {
+            const task = item.taskId || "task";
+            const type = item.workerType || "worker";
+            const expires = elapsedAgo(item.expiresAt);
+            return `${task} assigned to ${type} (expires ${expires || "soon"})`;
+          });
+          renderList(leasesList, leaseItems, "No active leases.");
+
+          const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+          liveNote.textContent =
+            `Progress ${done}/${total} chunks (${percent}%) - active workers: ${activeWorkers} (${browserWorkers} browser, ${localWorkers} local)`;
+          liveUpdated.textContent = `updated ${elapsedAgo(payload.now) || "just now"}`;
+        } catch (error) {
+          liveNote.textContent = `Live feed unavailable: ${error.message}`;
+          liveUpdated.textContent = "retrying...";
+        }
+      };
+
       window.setInterval(updateToast, 500);
+      window.setInterval(() => {
+        refreshProgress();
+      }, 2500);
       updateToast();
+      refreshProgress();
     </script>
   </body>
 </html>
