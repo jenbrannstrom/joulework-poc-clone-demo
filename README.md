@@ -7,6 +7,7 @@ Tiny JouleWork POC scaffold: MCU broker, local worker, and browser widget with e
 - Go MCU server: WebSocket broker, in-memory queue, leases, timeout requeue, result validation.
 - Go local worker: requests tasks, computes SHA-256, submits result.
 - Browser widget + worker: opt-in banner, active/paused/paid-share pill states.
+- Optional PI workload chunks: distributed Leibniz partial sums with live aggregate estimate.
 - Protocol doc: `docs/PROTOCOL.md`.
 
 ## Repo Layout
@@ -19,6 +20,7 @@ Tiny JouleWork POC scaffold: MCU broker, local worker, and browser widget with e
 - `web/widget/joulework-browser-worker.js`: browser compute worker
 - `web/demo/index.html`: sample page embedding widget
 - `scripts/seed_chunks.sh`: creates demo chunk files
+- `scripts/seed_pi_chunks.sh`: creates PI demo chunks (`pi_leibniz`)
 
 ## Quick Start
 
@@ -85,6 +87,7 @@ docker compose --profile worker up -d local-worker
 - If estimated joules reach target, pill turns green: `Thanks - you paid your share`.
 - No background compute when tab hidden: auto-pauses on `document.hidden`.
 - For shared demos, backend live progress is available at `GET /demo/progress` (queue counts, active workers, leases, recent completions).
+- `/demo/progress` also includes `pi` snapshot fields (`estimate`, terms/tasks done vs total) when PI chunks are present.
 
 ## POC Notes
 

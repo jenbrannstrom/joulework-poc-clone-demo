@@ -248,6 +248,21 @@
         border-top: 0;
       }
 
+      .pi-block {
+        margin-top: 8px;
+        padding: 8px;
+        border: 1px solid #2a444c;
+        border-radius: 10px;
+        background: #0e1518;
+      }
+
+      .pi-estimate {
+        margin: 6px 0 0;
+        color: #e6feff;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
       @media (max-width: 800px) {
         .clone-stamp {
           inset: auto 50% 48% auto;
@@ -319,6 +334,11 @@
             <li>No active leases.</li>
           </ul>
         </div>
+
+        <div class="pi-block">
+          <div class="live-list-title">Distributed Pi (Leibniz)</div>
+          <p class="pi-estimate" id="pi-estimate">No pi tasks active yet.</p>
+        </div>
       </section>
 
       <p class="legend">
@@ -342,6 +362,7 @@
       const leasesList = document.getElementById("leases-list");
       const liveNote = document.getElementById("live-note");
       const liveUpdated = document.getElementById("live-updated");
+      const piEstimate = document.getElementById("pi-estimate");
 
       const widget = window.startJouleWork({
         endpoint,
@@ -439,6 +460,7 @@
           const payload = await response.json();
           const queue = payload.queue || {};
           const workers = payload.workers || {};
+          const pi = payload.pi || {};
           const total = Number(queue.total || 0);
           const done = Number(queue.done || 0);
           const leased = Number(queue.leased || 0);
@@ -473,9 +495,26 @@
           liveNote.textContent =
             `Progress ${done}/${total} chunks (${percent}%) - active workers: ${activeWorkers} (${browserWorkers} browser, ${localWorkers} local)`;
           liveUpdated.textContent = `updated ${elapsedAgo(payload.now) || "just now"}`;
+
+          if (piEstimate) {
+            if (pi.enabled) {
+              const value = Number(pi.estimate || 0);
+              const doneTerms = Number(pi.doneTerms || 0);
+              const totalTerms = Number(pi.totalTerms || 0);
+              const doneTasks = Number(pi.doneTasks || 0);
+              const totalTasks = Number(pi.totalTasks || 0);
+              piEstimate.textContent =
+                `pi ≈ ${value.toFixed(10)} from ${doneTerms.toLocaleString()} / ${totalTerms.toLocaleString()} terms (${doneTasks}/${totalTasks} chunks)`;
+            } else {
+              piEstimate.textContent = "No pi tasks active yet.";
+            }
+          }
         } catch (error) {
           liveNote.textContent = `Live feed unavailable: ${error.message}`;
           liveUpdated.textContent = "retrying...";
+          if (piEstimate) {
+            piEstimate.textContent = "Pi feed unavailable.";
+          }
         }
       };
 

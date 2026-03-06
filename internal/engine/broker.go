@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,6 +19,8 @@ import (
 )
 
 var hashRegex = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
+
+const piPartialKind = "pi_leibniz_partial"
 
 type Config struct {
 	ChunkDir       string
@@ -80,6 +83,28 @@ type LeaseSnapshot struct {
 	ExpiresAt  time.Time `json:"expiresAt"`
 }
 
+type PiSnapshot struct {
+	Enabled    bool    `json:"enabled"`
+	Estimate   float64 `json:"estimate"`
+	TotalTasks int     `json:"totalTasks"`
+	DoneTasks  int     `json:"doneTasks"`
+	TotalTerms int64   `json:"totalTerms"`
+	DoneTerms  int64   `json:"doneTerms"`
+}
+
+type piTaskSpec struct {
+	TaskType  string `json:"taskType"`
+	StartTerm int64  `json:"startTerm"`
+	TermCount int64  `json:"termCount"`
+}
+
+type piPartialResult struct {
+	Kind       string  `json:"kind"`
+	StartTerm  int64   `json:"startTerm"`
+	TermCount  int64   `json:"termCount"`
+	PartialSum float64 `json:"partialSum"`
+}
+
 type Stats struct {
 	TotalCount   int
 	ReadyCount   int
@@ -99,6 +124,13 @@ type Broker struct {
 	done          map[string]struct{}
 	sessionJoules map[string]float64
 	recentResults []CompletionSnapshot
+
+	piTaskSpecs map[string]piTaskSpec
+	piDoneByTask map[string]struct{}
+	piTotalTerms int64
+	piDoneTerms  int64
+	piDoneTasks  int
+	piPartialSum float64
 }
 
 func NewBroker(cfg Config) (*Broker, error) {
@@ -134,8 +166,13 @@ func NewBroker(cfg Config) (*Broker, error) {
 		leasedByTask:  make(map[string]Lease),
 		done:          make(map[string]struct{}),
 		sessionJoules: make(map[string]float64),
+		piTaskSpecs:   make(map[string]piTaskSpec),
+		piDoneByTask:  make(map[string]struct{}),
 	}
 	if err := b.loadCompleted(); err != nil {
+		return nil, err
+	}
+	if err := b.loadPiProgressFromResults(); err != nil {
 		return nil, err
 	}
 	return b, nil
@@ -189,6 +226,9 @@ func (b *Broker) ScanChunks() error {
 	for _, task := range tasks {
 		if _, ok := b.tasks[task.ID]; !ok {
 			b.tasks[task.ID] = task
+		}
+		if taskTypeForTaskID(task.ID) == protocol.TaskTypePiLeibniz {
+			_, _ = b.loadPiTaskSpecLocked(task.ID)
 		}
 		if _, done := b.done[task.ID]; done {
 			continue
@@ -256,7 +296,7 @@ func (b *Broker) AssignTask(sessionID, workerType string, now time.Time) (Assign
 		return Assignment{
 			TaskID:         taskID,
 			LeaseID:        leaseID,
-			TaskType:       "sha256",
+			TaskType:       taskTypeForTaskID(taskID),
 			PayloadBase64:  base64.StdEncoding.EncodeToString(payload),
 			DeadlineUnixMs: lease.ExpiresAt.UnixMilli(),
 		}, true, nil
@@ -358,6 +398,29 @@ func (b *Broker) SubmitResult(sessionID, workerType string, req protocol.SubmitR
 		return ack
 	}
 
+	taskType := taskTypeForTaskID(req.TaskID)
+	var piPartial *piPartialResult
+	if taskType == protocol.TaskTypePiLeibniz {
+		spec, ok := b.loadPiTaskSpecLocked(req.TaskID)
+		if !ok {
+			ack.Accepted = false
+			ack.Reason = "invalid_pi_task"
+			return ack
+		}
+		parsed, err := parsePiPartialResult(req.Result)
+		if err != nil {
+			ack.Accepted = false
+			ack.Reason = "invalid_pi_result"
+			return ack
+		}
+		if parsed.StartTerm != spec.StartTerm || parsed.TermCount != spec.TermCount {
+			ack.Accepted = false
+			ack.Reason = "pi_result_mismatch"
+			return ack
+		}
+		piPartial = &parsed
+	}
+
 	joulesDelta := elapsedMsToJoules(req.ElapsedMs, b.wattsForWorker(workerType))
 	record := ResultRecord{
 		TaskID:         req.TaskID,
@@ -391,6 +454,14 @@ func (b *Broker) SubmitResult(sessionID, workerType string, req protocol.SubmitR
 	})
 	if len(b.recentResults) > 64 {
 		b.recentResults = append([]CompletionSnapshot(nil), b.recentResults[len(b.recentResults)-64:]...)
+	}
+	if piPartial != nil {
+		if _, seen := b.piDoneByTask[req.TaskID]; !seen {
+			b.piDoneByTask[req.TaskID] = struct{}{}
+			b.piDoneTasks++
+			b.piDoneTerms += piPartial.TermCount
+			b.piPartialSum += piPartial.PartialSum
+		}
 	}
 
 	ack.Accepted = true
@@ -456,6 +527,20 @@ func (b *Broker) ActiveLeases(limit int) []LeaseSnapshot {
 	return leases
 }
 
+func (b *Broker) PiSnapshot() PiSnapshot {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return PiSnapshot{
+		Enabled:    len(b.piTaskSpecs) > 0,
+		Estimate:   4 * b.piPartialSum,
+		TotalTasks: len(b.piTaskSpecs),
+		DoneTasks:  b.piDoneTasks,
+		TotalTerms: b.piTotalTerms,
+		DoneTerms:  b.piDoneTerms,
+	}
+}
+
 func (b *Broker) RegisterSession(sessionID string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -506,4 +591,107 @@ func randomID(nBytes int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+func taskTypeForTaskID(taskID string) string {
+	lower := strings.ToLower(taskID)
+	if strings.HasPrefix(lower, "pi_") || strings.HasSuffix(lower, ".pi.json") {
+		return protocol.TaskTypePiLeibniz
+	}
+	return protocol.TaskTypeSHA256
+}
+
+func (b *Broker) loadPiTaskSpecLocked(taskID string) (piTaskSpec, bool) {
+	if spec, ok := b.piTaskSpecs[taskID]; ok {
+		return spec, true
+	}
+	task, ok := b.tasks[taskID]
+	if !ok {
+		return piTaskSpec{}, false
+	}
+	spec, err := readPiTaskSpecFile(task.Path)
+	if err != nil {
+		return piTaskSpec{}, false
+	}
+	b.piTaskSpecs[taskID] = spec
+	b.piTotalTerms += spec.TermCount
+	return spec, true
+}
+
+func readPiTaskSpecFile(path string) (piTaskSpec, error) {
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return piTaskSpec{}, err
+	}
+	var spec piTaskSpec
+	if err := json.Unmarshal(payload, &spec); err != nil {
+		return piTaskSpec{}, err
+	}
+	if spec.TaskType == "" {
+		spec.TaskType = protocol.TaskTypePiLeibniz
+	}
+	if spec.TaskType != protocol.TaskTypePiLeibniz {
+		return piTaskSpec{}, fmt.Errorf("unsupported pi task type: %s", spec.TaskType)
+	}
+	if spec.StartTerm < 0 || spec.TermCount <= 0 {
+		return piTaskSpec{}, fmt.Errorf("invalid pi range")
+	}
+	return spec, nil
+}
+
+func parsePiPartialResult(raw string) (piPartialResult, error) {
+	var result piPartialResult
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		return piPartialResult{}, err
+	}
+	if result.Kind != piPartialKind {
+		return piPartialResult{}, fmt.Errorf("unexpected kind")
+	}
+	if result.StartTerm < 0 || result.TermCount <= 0 {
+		return piPartialResult{}, fmt.Errorf("invalid pi bounds")
+	}
+	if math.IsNaN(result.PartialSum) || math.IsInf(result.PartialSum, 0) {
+		return piPartialResult{}, fmt.Errorf("invalid pi sum")
+	}
+	return result, nil
+}
+
+func (b *Broker) loadPiProgressFromResults() error {
+	entries, err := os.ReadDir(b.cfg.ResultDir)
+	if err != nil {
+		return fmt.Errorf("read result dir for pi progress: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".result.json") {
+			continue
+		}
+		taskID := strings.TrimSuffix(name, ".result.json")
+		if taskTypeForTaskID(taskID) != protocol.TaskTypePiLeibniz {
+			continue
+		}
+		payload, err := os.ReadFile(filepath.Join(b.cfg.ResultDir, name))
+		if err != nil {
+			continue
+		}
+		var record ResultRecord
+		if err := json.Unmarshal(payload, &record); err != nil {
+			continue
+		}
+		partial, err := parsePiPartialResult(record.Result)
+		if err != nil {
+			continue
+		}
+		if _, exists := b.piDoneByTask[taskID]; exists {
+			continue
+		}
+		b.piDoneByTask[taskID] = struct{}{}
+		b.piDoneTasks++
+		b.piDoneTerms += partial.TermCount
+		b.piPartialSum += partial.PartialSum
+	}
+	return nil
 }

@@ -16,26 +16,65 @@ function bytesToHex(bytes) {
   return hex.join("");
 }
 
+function computePiPartial(taskPayload) {
+  if (
+    !taskPayload ||
+    typeof taskPayload.startTerm !== "number" ||
+    typeof taskPayload.termCount !== "number" ||
+    taskPayload.startTerm < 0 ||
+    taskPayload.termCount <= 0
+  ) {
+    throw new Error("invalid pi task payload");
+  }
+
+  let partial = 0;
+  const startTerm = Math.floor(taskPayload.startTerm);
+  const termCount = Math.floor(taskPayload.termCount);
+  const end = startTerm + termCount;
+  for (let k = startTerm; k < end; k += 1) {
+    const sign = k % 2 === 0 ? 1 : -1;
+    partial += sign / (2 * k + 1);
+  }
+
+  return JSON.stringify({
+    kind: "pi_leibniz_partial",
+    startTerm,
+    termCount,
+    partialSum: partial,
+  });
+}
+
 self.onmessage = async (event) => {
   const message = event.data;
   if (!message || message.type !== "compute") {
     return;
   }
 
-  const { taskId, leaseId, payloadBase64 } = message;
+  const { taskId, leaseId, payloadBase64, taskType = "sha256" } = message;
   try {
     const bytes = decodeBase64ToBytes(payloadBase64);
     const start = performance.now();
-    const hashBuffer = await crypto.subtle.digest("SHA-256", bytes);
+    let result;
+    let outputHash = "";
+
+    if (taskType === "pi_leibniz") {
+      const payloadText = new TextDecoder().decode(bytes);
+      const taskPayload = JSON.parse(payloadText);
+      result = computePiPartial(taskPayload);
+    } else {
+      const hashBuffer = await crypto.subtle.digest("SHA-256", bytes);
+      const hashHex = bytesToHex(new Uint8Array(hashBuffer));
+      result = hashHex;
+      outputHash = hashHex;
+    }
     const elapsedMs = Math.max(1, Math.round(performance.now() - start));
-    const hashHex = bytesToHex(new Uint8Array(hashBuffer));
 
     self.postMessage({
       type: "computed",
       taskId,
       leaseId,
-      result: hashHex,
-      outputHash: hashHex,
+      result,
+      outputHash,
       elapsedMs,
     });
   } catch (error) {

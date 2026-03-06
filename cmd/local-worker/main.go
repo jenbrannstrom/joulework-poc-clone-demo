@@ -16,6 +16,19 @@ import (
 	"github.com/joulework/distri-pico/internal/protocol"
 )
 
+type piTaskPayload struct {
+	TaskType  string `json:"taskType"`
+	StartTerm int64  `json:"startTerm"`
+	TermCount int64  `json:"termCount"`
+}
+
+type piPartialResult struct {
+	Kind       string  `json:"kind"`
+	StartTerm  int64   `json:"startTerm"`
+	TermCount  int64   `json:"termCount"`
+	PartialSum float64 `json:"partialSum"`
+}
+
 func main() {
 	var (
 		wsURL      = flag.String("ws-url", "ws://127.0.0.1:8080/node?workerType=local", "MCU websocket URL")
@@ -118,22 +131,18 @@ func processTask(conn *websocket.Conn, task protocol.TaskAssigned) error {
 	if err != nil {
 		return fmt.Errorf("decode payload: %w", err)
 	}
-
-	start := time.Now()
-	sum := sha256.Sum256(payload)
-	resultHash := hex.EncodeToString(sum[:])
-	elapsed := time.Since(start).Milliseconds()
-	if elapsed <= 0 {
-		elapsed = 1
+	resultValue, outputHash, elapsed, err := computeTaskResult(task.TaskType, payload)
+	if err != nil {
+		return err
 	}
 
 	submit := protocol.SubmitResult{
 		Type:       protocol.TypeSubmitResult,
 		TaskID:     task.TaskID,
 		LeaseID:    task.LeaseID,
-		Result:     resultHash,
+		Result:     resultValue,
 		ElapsedMs:  elapsed,
-		OutputHash: resultHash,
+		OutputHash: outputHash,
 	}
 	if err := conn.WriteJSON(submit); err != nil {
 		return fmt.Errorf("submit result: %w", err)
@@ -167,6 +176,51 @@ func processTask(conn *websocket.Conn, task protocol.TaskAssigned) error {
 	}
 	log.Printf("task=%s accepted sessionJ=%.2f targetReached=%v", task.TaskID, ack.SessionJoulesEst, ack.TargetReached)
 	return nil
+}
+
+func computeTaskResult(taskType string, payload []byte) (string, string, int64, error) {
+	start := time.Now()
+	switch taskType {
+	case protocol.TaskTypePiLeibniz:
+		var task piTaskPayload
+		if err := json.Unmarshal(payload, &task); err != nil {
+			return "", "", 0, fmt.Errorf("decode pi payload: %w", err)
+		}
+		if task.StartTerm < 0 || task.TermCount <= 0 {
+			return "", "", 0, fmt.Errorf("invalid pi payload bounds")
+		}
+		partial := 0.0
+		end := task.StartTerm + task.TermCount
+		for k := task.StartTerm; k < end; k++ {
+			sign := 1.0
+			if k%2 == 1 {
+				sign = -1.0
+			}
+			partial += sign / float64(2*k+1)
+		}
+		resultData, err := json.Marshal(piPartialResult{
+			Kind:       "pi_leibniz_partial",
+			StartTerm:  task.StartTerm,
+			TermCount:  task.TermCount,
+			PartialSum: partial,
+		})
+		if err != nil {
+			return "", "", 0, fmt.Errorf("encode pi result: %w", err)
+		}
+		elapsed := time.Since(start).Milliseconds()
+		if elapsed <= 0 {
+			elapsed = 1
+		}
+		return string(resultData), "", elapsed, nil
+	default:
+		sum := sha256.Sum256(payload)
+		resultHash := hex.EncodeToString(sum[:])
+		elapsed := time.Since(start).Milliseconds()
+		if elapsed <= 0 {
+			elapsed = 1
+		}
+		return resultHash, resultHash, elapsed, nil
+	}
 }
 
 func normalizeWorkerType(workerType string) string {

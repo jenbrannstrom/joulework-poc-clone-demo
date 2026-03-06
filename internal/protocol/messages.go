@@ -21,6 +21,11 @@ const (
 	WorkerTypeLocal   = "local"
 )
 
+const (
+	TaskTypeSHA256    = "sha256"
+	TaskTypePiLeibniz = "pi_leibniz"
+)
+
 type Envelope struct {
 	Type string `json:"type"`
 }

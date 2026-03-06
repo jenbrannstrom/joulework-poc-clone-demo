@@ -194,6 +194,7 @@ func (s *server) handleDemoProgress(w http.ResponseWriter, r *http.Request) {
 		},
 		"activeLeases":      s.broker.ActiveLeases(12),
 		"recentCompletions": s.broker.RecentCompletions(16),
+		"pi":               s.broker.PiSnapshot(),
 		"now":               time.Now().UTC().Format(time.RFC3339),
 	})
 }

@@ -376,6 +376,7 @@
           type: "compute",
           taskId: payload.taskId,
           leaseId: payload.leaseId,
+          taskType: payload.taskType || "sha256",
           payloadBase64: payload.payloadBase64,
         });
         return;
