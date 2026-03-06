@@ -1,37 +1,106 @@
 # distri-pico
 
-Tiny JouleWork POC scaffold: MCU broker, local worker, and browser widget with estimated joule progress.
+A tiny distributed-compute POC for reader-funded compute.
 
-## What Is Included
+## What This App Does (First Principles)
 
-- Go MCU server: WebSocket broker, in-memory queue, leases, timeout requeue, result validation.
-- Go local worker: requests tasks, computes SHA-256, submits result.
-- Browser widget + worker: opt-in banner, active/paused/paid-share pill states.
-- Optional PI workload chunks: distributed Leibniz partial sums with live aggregate estimate.
-- Protocol doc: `docs/PROTOCOL.md`.
+This app turns many small, voluntary devices (mostly browser tabs) into one temporary compute pool.
 
-## Repo Layout
+At first principles:
 
-- `cmd/mcu/main.go`: MCU server
-- `cmd/local-worker/main.go`: local worker client
-- `internal/engine/broker.go`: queue/lease/validation/persistence logic
-- `internal/protocol/messages.go`: wire message structs and constants
-- `web/widget/joulework-widget.js`: browser UI + socket logic
-- `web/widget/joulework-browser-worker.js`: browser compute worker
-- `web/demo/index.html`: sample page embedding widget
-- `scripts/seed_chunks.sh`: creates demo chunk files
-- `scripts/seed_pi_chunks.sh`: creates PI demo chunks (`pi_leibniz`)
-  - args: `chunk_dir task_count terms_per_task [start_term] [prefix]`
+1. Any CPU work consumes energy over time.
+2. A single reader device is small, but many readers together are meaningful.
+3. Some compute jobs can be split into independent chunks.
+4. A coordinator can assign chunks, collect results, and track contribution.
 
-## Quick Start
+`distri-pico` is exactly that coordinator + worker loop.
 
-1. Seed chunks:
+## Mental Model
+
+- **Coordinator (MCU server)**: keeps a queue of tasks, leases tasks to workers, validates submissions, writes results, exposes progress APIs.
+- **Worker**: a browser worker or local process that asks for a task, computes it, sends result back.
+- **Task chunk**: one independent unit of work from `data/chunks`.
+- **Result record**: accepted output written to `data/results`.
+
+## End-to-End Flow
+
+1. A page loads the widget.
+2. User opts in (or activates the demo button).
+3. Browser opens WebSocket to MCU (`/node`).
+4. Worker sends `hello`, then `request_task`.
+5. MCU leases a task (with lease id + deadline).
+6. Worker computes and sends `submit_result`.
+7. MCU validates lease/session/payload and persists result.
+8. UI polls `/demo/progress` and shows live queue + worker + PI metrics.
+
+## Workloads Supported
+
+- **`sha256`**: hash payload chunks.
+- **`pi_leibniz`**: compute partial Leibniz series ranges and aggregate `pi` estimate.
+
+PI snapshots are exposed via `/demo/progress` under `pi`:
+
+- `estimate`
+- `doneTerms` / `totalTerms`
+- `doneTasks` / `totalTasks`
+
+## What The Metrics Mean
+
+From `/health` and `/demo/progress`:
+
+- `ready`: tasks waiting in queue.
+- `leased`: tasks currently checked out by workers.
+- `done`: tasks completed and persisted.
+- `total`: `ready + leased + done`.
+- `sessions`: known worker sessions.
+
+A value like `{"done":156,"leased":1,"ready":499,...}` means one task was actively in-flight at that instant.
+
+## Trust And Validation (POC Level)
+
+What is validated now:
+
+- Message shape and required fields.
+- Lease ownership (session + lease id must match).
+- Lease expiry.
+- Result size bounds.
+- Task-specific PI result shape/range.
+
+What is not solved yet (expected for POC):
+
+- Strong anti-abuse / Sybil resistance.
+- Cryptographic proof-of-execution.
+- Economic settlement.
+- Byzantine workers at internet scale.
+
+## Canonical URL and TLS (Plain English)
+
+- **Canonical URL** = the one official URL you treat as authoritative.
+- **TLS** = the certificate + encryption system behind HTTPS.
+
+When GitHub Pages has `https_enforced: true`, it means:
+
+1. The custom domain has a valid TLS cert.
+2. HTTP is redirected to HTTPS.
+3. HTTPS becomes the canonical serving path.
+
+If `https_enforced: false`, your custom domain may still serve primarily on HTTP.
+
+## Quick Start (Local)
+
+1. Seed basic hash chunks:
 
 ```bash
 ./scripts/seed_chunks.sh ./data/chunks 20
 ```
 
-2. Run MCU:
+2. Or seed PI chunks:
+
+```bash
+./scripts/seed_pi_chunks.sh ./data/chunks 40 200000
+```
+
+3. Run MCU:
 
 ```bash
 go run ./cmd/mcu \
@@ -41,117 +110,62 @@ go run ./cmd/mcu \
   -target-joules 20
 ```
 
-3. Run local worker:
+4. Run a worker:
 
 ```bash
 go run ./cmd/local-worker -ws-url ws://127.0.0.1:8080/node?workerType=local
 ```
 
-4. Serve `web/` statically and open demo page:
+5. Serve web assets:
 
 ```bash
 python3 -m http.server 9000 -d web
-# Open http://127.0.0.1:9000/demo/
 ```
 
-## Docker Quick Start (No Local Go Required)
-
-1. Seed chunks:
-
-```bash
-./scripts/seed_chunks.sh ./data/chunks 20
-```
-
-2. Start MCU + demo web server:
-
-```bash
-cp .env.example .env
-docker compose up --build mcu web-demo
-```
-
-3. Open demo page:
+6. Open demo page:
 
 ```text
 http://127.0.0.1:9000/demo/
 ```
 
-4. Optional local worker container:
+## Scripts
 
-```bash
-docker compose --profile worker up -d local-worker
-```
+- `scripts/seed_chunks.sh`: creates basic demo chunk files.
+- `scripts/seed_pi_chunks.sh`: creates PI tasks.
+  - args: `chunk_dir task_count terms_per_task [start_term] [prefix]`
 
-## Widget Behavior
+Use `start_term` + `prefix` to avoid overlapping PI ranges across batches.
 
-- Starts with consent banner.
-- On opt-in, shows active pill with tasks + estimated joules.
-- If estimated joules reach target, pill turns green: `Thanks - you paid your share`.
-- No background compute when tab hidden: auto-pauses on `document.hidden`.
-- For shared demos, backend live progress is available at `GET /demo/progress` (queue counts, active workers, leases, recent completions).
-- `/demo/progress` also includes `pi` snapshot fields (`estimate`, terms/tasks done vs total) when PI chunks are present.
+## Production-ish Demo Topology
 
-## POC Notes
+- Static site: GitHub Pages (widget UI).
+- Coordinator: GCP VM (MCU WebSocket/API).
+- Browser clients: reader devices.
 
-- Browser joules are estimated from elapsed time and watt assumptions.
-- Local workers can later be upgraded to hardware joule telemetry.
-- No durable queue or DB in this tiny version.
+## WordPress Integration (Simple Path)
 
-## Deploy Notes: GCP MCU + GH Pages Site
+You do not need a plugin to start.
 
-1. Run MCU on GCP and expose `/node` as `wss://work.yourdomain.com/node` (Cloudflare Tunnel is fine).
-2. Set MCU allowed origins to your GitHub Pages origin:
+Simplest integration:
 
-```bash
-ALLOW_ORIGINS=https://YOUR_GH_USER.github.io
-```
+1. Load widget script in footer/header.
+2. Call `window.startJouleWork({...})` with your MCU endpoint.
 
-3. Embed widget on GH Pages:
+A plugin can come later for admin UX (on/off per page, consent copy, endpoint config).
 
-```html
-<script src="/distri-pico/widget/joulework-widget.js"></script>
-<script>
-  window.startJouleWork({
-    endpoint: "wss://work.yourdomain.com/node?workerType=browser",
-    workerScriptUrl: "/distri-pico/widget/joulework-browser-worker.js",
-    targetJoules: 20
-  });
-</script>
-```
+## Repo Layout
 
-4. If your repo is a project site, keep the repo prefix in paths (example above: `/distri-pico/...`).
-5. For local demo endpoint override, you can use:
+- `cmd/mcu/main.go`: MCU server.
+- `cmd/local-worker/main.go`: local worker client.
+- `internal/engine/broker.go`: queue, leases, validation, persistence.
+- `internal/protocol/messages.go`: protocol structs/constants.
+- `web/widget/*`: embeddable browser widget + worker.
+- `web/gh-pages/*`: hosted demo page assets.
+- `docs/PROTOCOL.md`: wire protocol reference.
 
-```text
-http://127.0.0.1:9000/demo/?endpoint=ws://127.0.0.1:8080/node?workerType=browser&targetJoules=20
-```
+## Current Public Endpoints
 
-## Deployed POC Targets
-
-- GitHub repo: `https://github.com/jenbrannstrom/joulework-poc-clone-demo`
-- GitHub Pages URL: `https://jenbrannstrom.github.io/joulework-poc-clone-demo/`
-- Intended custom demo domain: `https://joulework-demo.rtb.cat`
-- Dedicated GCP MCU static IP: kept private (look up in GCP when needed)
-- Intended MCU endpoint domain: `wss://joulework-poc.rtb.cat/node?workerType=browser`
-
-## DNS Records Needed In Cloudflare (`rtb.cat`)
-
-1. `A` record
-- Name: `joulework-poc`
-- Target: `<GCP_STATIC_IP_FOR_JOULEWORK_POC_VM>`
-- Proxy: DNS only (grey cloud) until TLS cert is issued
-
-To retrieve the current static IP:
-
-```bash
-gcloud compute addresses describe joulework-poc-ip \
-  --project=<PROJECT_ID> \
-  --region=asia-southeast1 \
-  --format='value(address)'
-```
-
-2. `CNAME` record
-- Name: `joulework-demo`
-- Target: `jenbrannstrom.github.io`
-- Proxy: DNS only initially
-
-After DNS propagates, Caddy on the MCU host will automatically issue TLS for `joulework-poc.rtb.cat`.
+- Demo page: `http://joulework-demo.rtb.cat/`
+- MCU health: `https://joulework-poc.rtb.cat/health`
+- MCU live progress: `https://joulework-poc.rtb.cat/demo/progress`
+- MCU websocket: `wss://joulework-poc.rtb.cat/node?workerType=browser`
