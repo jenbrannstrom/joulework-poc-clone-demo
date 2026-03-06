@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -160,25 +161,31 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if s.writeCORSHeaders(w, r) {
-		return
-	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"ok":      true,
-		"service": "joulework-mcu",
-		"message": "API and worker endpoint. Use the demo page for UI.",
-		"endpoints": map[string]string{
-			"health":        "/health",
-			"demoProgress":  "/demo/progress",
-			"websocketNode": "/node?workerType=browser",
-			"demoPage":      "http://joulework-demo.rtb.cat/",
-		},
-	})
+	if r.URL.Query().Get("format") == "json" {
+		if s.writeCORSHeaders(w, r) {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":      true,
+			"service": "joulework-mcu",
+			"message": "API and worker endpoint. Use the demo page for UI.",
+			"endpoints": map[string]string{
+				"health":        "/health",
+				"demoProgress":  "/demo/progress",
+				"websocketNode": "/node?workerType=browser",
+				"demoPage":      "http://joulework-demo.rtb.cat/",
+			},
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = io.WriteString(w, rootPageHTML)
 }
 
 func (s *server) handleDemoProgress(w http.ResponseWriter, r *http.Request) {
@@ -192,6 +199,11 @@ func (s *server) handleDemoProgress(w http.ResponseWriter, r *http.Request) {
 
 	stats := s.broker.Stats()
 	activeWorkers := s.snapshotActiveWorkers()
+	requestedSession := strings.TrimSpace(r.URL.Query().Get("sessionId"))
+	mySessionJoules := 0.0
+	if requestedSession != "" {
+		mySessionJoules = s.broker.SessionJoules(requestedSession)
+	}
 	activeBrowser := 0
 	activeLocal := 0
 	for _, worker := range activeWorkers {
@@ -205,7 +217,12 @@ func (s *server) handleDemoProgress(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"ok": true,
+		"ok":           true,
+		"targetJoules": s.broker.TargetJoules(),
+		"mySession": map[string]any{
+			"id":        requestedSession,
+			"joulesEst": mySessionJoules,
+		},
 		"queue": map[string]any{
 			"total":  stats.TotalCount,
 			"ready":  stats.ReadyCount,
@@ -221,7 +238,7 @@ func (s *server) handleDemoProgress(w http.ResponseWriter, r *http.Request) {
 		},
 		"activeLeases":      s.broker.ActiveLeases(12),
 		"recentCompletions": s.broker.RecentCompletions(16),
-		"pi":               s.broker.PiSnapshot(),
+		"pi":                s.broker.PiSnapshot(),
 		"now":               time.Now().UTC().Format(time.RFC3339),
 	})
 }
@@ -459,3 +476,246 @@ func mustRandomID(nBytes int) string {
 	}
 	return hex.EncodeToString(buf)
 }
+
+const rootPageHTML = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JouleWork MCU POC</title>
+    <style>
+      :root {
+        --bg: #0b1117;
+        --card: #131f29;
+        --line: #2a4152;
+        --ink: #ecf9ff;
+        --muted: #9bbecf;
+        --accent: #5ac8f7;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: radial-gradient(circle at 20% 0%, #14273a 0%, #081018 55%, #05090f 100%);
+        color: var(--ink);
+        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+      }
+      .wrap {
+        width: min(760px, 100% - 24px);
+        margin: 22px auto 30px;
+      }
+      .hero {
+        border: 1px solid var(--line);
+        background: rgba(11, 20, 30, 0.82);
+        border-radius: 16px;
+        padding: 16px;
+      }
+      .hero h1 {
+        margin: 0;
+        font-size: clamp(20px, 4vw, 30px);
+      }
+      .hero p {
+        margin: 8px 0 0;
+        color: var(--muted);
+      }
+      .hero a {
+        color: var(--accent);
+      }
+      .grid {
+        margin-top: 12px;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .metric {
+        border: 1px solid #2b4354;
+        border-radius: 10px;
+        background: var(--card);
+        padding: 9px 10px;
+      }
+      .metric .k {
+        display: block;
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .metric .v {
+        display: block;
+        margin-top: 4px;
+        font-size: 20px;
+        font-weight: 700;
+      }
+      .session {
+        margin-top: 10px;
+        border: 1px solid #2b4354;
+        border-radius: 10px;
+        background: #0d1822;
+        padding: 10px;
+        color: #d0f0ff;
+        font-size: 14px;
+      }
+      .lists {
+        margin-top: 12px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .panel {
+        border: 1px solid #2a4152;
+        border-radius: 10px;
+        background: #0d1720;
+        padding: 10px;
+      }
+      .panel h2 {
+        margin: 0;
+        font-size: 13px;
+        color: #b5d8e8;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .list {
+        margin: 8px 0 0;
+        padding: 0;
+        list-style: none;
+        font-size: 13px;
+      }
+      .list li {
+        border-top: 1px solid rgba(160, 198, 214, 0.15);
+        padding: 6px 0;
+      }
+      .list li:first-child {
+        border-top: 0;
+      }
+      .updated {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      @media (max-width: 780px) {
+        .grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .lists {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="hero">
+        <h1>JouleWork POC Monitor</h1>
+        <p>
+          This page shows swarm-level work from the MCU. Reader-facing demo is
+          <a href="http://joulework-demo.rtb.cat/">joulework-demo.rtb.cat</a>.
+        </p>
+        <div class="grid">
+          <div class="metric"><span class="k">Done</span><span class="v" id="done">0</span></div>
+          <div class="metric"><span class="k">Leased</span><span class="v" id="leased">0</span></div>
+          <div class="metric"><span class="k">Ready</span><span class="v" id="ready">0</span></div>
+          <div class="metric"><span class="k">Workers</span><span class="v" id="workers">0</span></div>
+        </div>
+        <div class="session" id="session-box">Session contribution: add <code>?sessionId=...</code> to this URL.</div>
+      </section>
+      <section class="lists">
+        <article class="panel">
+          <h2>Recent Completions</h2>
+          <ul class="list" id="recent"><li>No completions yet.</li></ul>
+        </article>
+        <article class="panel">
+          <h2>Active Leases</h2>
+          <ul class="list" id="leases"><li>No active leases.</li></ul>
+        </article>
+      </section>
+      <p class="updated" id="updated">loading...</p>
+    </main>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const sessionId = params.get("sessionId") || "";
+      const doneEl = document.getElementById("done");
+      const leasedEl = document.getElementById("leased");
+      const readyEl = document.getElementById("ready");
+      const workersEl = document.getElementById("workers");
+      const recentEl = document.getElementById("recent");
+      const leasesEl = document.getElementById("leases");
+      const sessionBox = document.getElementById("session-box");
+      const updatedEl = document.getElementById("updated");
+
+      const ago = (iso) => {
+        const ts = Date.parse(iso || "");
+        if (Number.isNaN(ts)) {
+          return "";
+        }
+        const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+        if (s < 60) return s + "s ago";
+        const m = Math.floor(s / 60);
+        if (m < 60) return m + "m ago";
+        return Math.floor(m / 60) + "h ago";
+      };
+
+      const renderList = (root, rows, fallback) => {
+        root.innerHTML = "";
+        if (!Array.isArray(rows) || rows.length === 0) {
+          const li = document.createElement("li");
+          li.textContent = fallback;
+          root.appendChild(li);
+          return;
+        }
+        rows.forEach((row) => {
+          const li = document.createElement("li");
+          li.textContent = row;
+          root.appendChild(li);
+        });
+      };
+
+      const refresh = async () => {
+        const query = sessionId ? "?sessionId=" + encodeURIComponent(sessionId) : "";
+        const response = await fetch("/demo/progress" + query, { cache: "no-store" });
+        const payload = await response.json();
+        const queue = payload.queue || {};
+        const workers = payload.workers || {};
+        const pi = payload.pi || {};
+
+        doneEl.textContent = String(queue.done || 0);
+        leasedEl.textContent = String(queue.leased || 0);
+        readyEl.textContent = String(queue.ready || 0);
+        workersEl.textContent = String(workers.active || 0);
+
+        const recent = (payload.recentCompletions || []).slice(0, 8).map((item) => {
+          return (item.taskId || "task") + " via " + (item.workerType || "worker") + " (" + (item.elapsedMs || 0) + "ms, " + ago(item.submittedAt) + ")";
+        });
+        renderList(recentEl, recent, "No completions yet.");
+
+        const leases = (payload.activeLeases || []).slice(0, 8).map((item) => {
+          return (item.taskId || "task") + " assigned to " + (item.workerType || "worker");
+        });
+        renderList(leasesEl, leases, "No active leases.");
+
+        if (sessionId) {
+          const my = Number((payload.mySession || {}).joulesEst || 0);
+          sessionBox.textContent = "Session " + sessionId + ": " + my.toFixed(2) + "J estimated contribution.";
+        } else {
+          sessionBox.innerHTML = "Session contribution: add <code>?sessionId=...</code> to this URL.";
+        }
+
+        updatedEl.textContent =
+          "Swarm progress: " +
+          (queue.done || 0) +
+          "/" +
+          (queue.total || 0) +
+          " tasks. PI estimate: " +
+          Number(pi.estimate || 0).toFixed(10) +
+          ". Updated " +
+          (ago(payload.now) || "just now");
+      };
+
+      refresh().catch((err) => {
+        updatedEl.textContent = "Unable to load progress: " + err.message;
+      });
+      window.setInterval(() => refresh().catch(() => {}), 2500);
+    </script>
+  </body>
+</html>
+`

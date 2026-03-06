@@ -6,13 +6,10 @@
     <title>JouleWork POC Clone Demo</title>
     <style>
       :root {
-        --bg: #141414;
-        --card: #1f1f1f;
         --line: #4f4f4f;
         --ink: #f3f3f3;
         --muted: #b8b8b8;
-        --alert: #d6d6d6;
-        --accent: #c8c8c8;
+        --accent: #9aeaff;
       }
 
       * {
@@ -54,7 +51,7 @@
         border: 2px solid var(--line);
         border-radius: 18px;
         overflow: hidden;
-        background: var(--card);
+        background: #1f1f1f;
         box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
       }
 
@@ -98,7 +95,7 @@
       .new-toast-anchor {
         position: absolute;
         left: 10px;
-        bottom: 108px;
+        bottom: 96px;
         z-index: 20;
       }
 
@@ -148,6 +145,29 @@
         flex: 0 0 auto;
       }
 
+      .contrib-meta {
+        margin-top: 8px;
+        max-width: 340px;
+        padding: 7px 9px;
+        border: 1px solid rgba(88, 122, 138, 0.9);
+        border-radius: 10px;
+        background: rgba(7, 13, 18, 0.78);
+        backdrop-filter: blur(2px);
+      }
+
+      .contrib-link {
+        color: var(--accent);
+        font-size: 12px;
+        text-decoration: underline;
+      }
+
+      .contrib-summary {
+        margin: 6px 0 0;
+        color: #d6f2ff;
+        font-size: 11px;
+        line-height: 1.35;
+      }
+
       .legend {
         margin: 14px 4px 0;
         color: var(--muted);
@@ -155,112 +175,7 @@
       }
 
       .legend code {
-        color: var(--accent);
-      }
-
-      .live-panel {
-        margin: 12px 2px 0;
-        border: 1px solid #34535b;
-        border-radius: 14px;
-        background: #111a1d;
-        padding: 10px 12px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-      }
-
-      .live-head {
-        display: flex;
-        justify-content: space-between;
-        align-items: baseline;
-        gap: 8px;
-        color: #e5f8fc;
-      }
-
-      .live-head strong {
-        font-size: 13px;
-      }
-
-      .live-head span {
-        font-size: 11px;
-        color: #98b8bf;
-      }
-
-      .live-grid {
-        margin-top: 8px;
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 6px;
-      }
-
-      .metric {
-        border: 1px solid #2a444c;
-        border-radius: 10px;
-        padding: 7px 8px;
-        background: #0e1518;
-      }
-
-      .metric .k {
-        display: block;
-        color: #9fc0c8;
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-      }
-
-      .metric .v {
-        display: block;
-        margin-top: 2px;
-        color: #e9fcff;
-        font-size: 15px;
-        font-weight: 700;
-      }
-
-      .live-note {
-        margin: 8px 0 2px;
-        color: #95c5cf;
-        font-size: 12px;
-      }
-
-      .live-list-block {
-        margin-top: 8px;
-      }
-
-      .live-list-title {
-        color: #9dc1c8;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-      }
-
-      .live-list {
-        margin: 4px 0 0;
-        padding: 0;
-        list-style: none;
-        color: #e8f4f7;
-        font-size: 12px;
-      }
-
-      .live-list li {
-        border-top: 1px solid rgba(130, 167, 176, 0.18);
-        padding: 5px 0;
-      }
-
-      .live-list li:first-child {
-        border-top: 0;
-      }
-
-      .pi-block {
-        margin-top: 8px;
-        padding: 8px;
-        border: 1px solid #2a444c;
-        border-radius: 10px;
-        background: #0e1518;
-      }
-
-      .pi-estimate {
-        margin: 6px 0 0;
-        color: #e6feff;
-        font-size: 13px;
-        line-height: 1.4;
+        color: #c8c8c8;
       }
 
       @media (max-width: 800px) {
@@ -273,12 +188,16 @@
 
         .new-toast-anchor {
           left: 8px;
-          bottom: 104px;
+          bottom: 96px;
         }
 
         .new-toast {
           font-size: 11px;
           padding: 8px 10px;
+          max-width: calc(100vw - 30px);
+        }
+
+        .contrib-meta {
           max-width: calc(100vw - 30px);
         }
       }
@@ -303,41 +222,10 @@
             <span class="badge">J</span>
             <span>donate some Compute power to Brian - you can give us 20% of your devices compute power to help fnud our research</span>
           </button>
-        </div>
-      </section>
-
-      <section class="live-panel" id="live-panel">
-        <div class="live-head">
-          <strong>Live MCU Work Feed</strong>
-          <span id="live-updated">waiting for backend...</span>
-        </div>
-
-        <div class="live-grid">
-          <div class="metric"><span class="k">Done</span><span class="v" id="metric-done">0</span></div>
-          <div class="metric"><span class="k">Leased</span><span class="v" id="metric-leased">0</span></div>
-          <div class="metric"><span class="k">Ready</span><span class="v" id="metric-ready">0</span></div>
-          <div class="metric"><span class="k">Workers</span><span class="v" id="metric-workers">0</span></div>
-        </div>
-
-        <p class="live-note" id="live-note">Shows real chunks completed by connected workers.</p>
-
-        <div class="live-list-block">
-          <div class="live-list-title">Recent Completed Chunks</div>
-          <ul class="live-list" id="recent-list">
-            <li>No completions yet.</li>
-          </ul>
-        </div>
-
-        <div class="live-list-block">
-          <div class="live-list-title">Active Leases</div>
-          <ul class="live-list" id="leases-list">
-            <li>No active leases.</li>
-          </ul>
-        </div>
-
-        <div class="pi-block">
-          <div class="live-list-title">Distributed Pi (Leibniz)</div>
-          <p class="pi-estimate" id="pi-estimate">No pi tasks active yet.</p>
+          <div class="contrib-meta">
+            <a class="contrib-link" id="contrib-link" href="https://joulework-poc.rtb.cat/" target="_blank" rel="noopener">see your contribution</a>
+            <p class="contrib-summary" id="contrib-summary">My contribution: 0.0J | Swarm: loading...</p>
+          </div>
         </div>
       </section>
 
@@ -354,15 +242,16 @@
       const targetJoules = Number(params.get("targetJoules") || "20");
       const progressEndpoint = params.get("progress") || "https://joulework-poc.rtb.cat/demo/progress";
       const toastLabel = document.getElementById("new-toast-label");
-      const metricDone = document.getElementById("metric-done");
-      const metricLeased = document.getElementById("metric-leased");
-      const metricReady = document.getElementById("metric-ready");
-      const metricWorkers = document.getElementById("metric-workers");
-      const recentList = document.getElementById("recent-list");
-      const leasesList = document.getElementById("leases-list");
-      const liveNote = document.getElementById("live-note");
-      const liveUpdated = document.getElementById("live-updated");
-      const piEstimate = document.getElementById("pi-estimate");
+      const contribLink = document.getElementById("contrib-link");
+      const contribSummary = document.getElementById("contrib-summary");
+
+      const swarm = {
+        done: 0,
+        total: 0,
+        workers: 0,
+        piEnabled: false,
+        piEstimate: 0,
+      };
 
       const widget = window.startJouleWork({
         endpoint,
@@ -371,6 +260,32 @@
         showConsentBanner: false,
         showPill: false,
       });
+
+      const contributionUrl = () => {
+        if (!widget || !widget.sessionId) {
+          return "https://joulework-poc.rtb.cat/";
+        }
+        return `https://joulework-poc.rtb.cat/?sessionId=${encodeURIComponent(widget.sessionId)}`;
+      };
+
+      const updateContributionSummary = () => {
+        if (!widget || !contribSummary || !contribLink) {
+          return;
+        }
+        contribLink.href = contributionUrl();
+        const my = widget.sessionJoules || 0;
+        const done = Number(swarm.done || 0);
+        const total = Number(swarm.total || 0);
+        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+        let line = `My contribution: ${my.toFixed(1)}J | Swarm: ${done}/${total} tasks`;
+        if (total > 0) {
+          line += ` (${pct}%)`;
+        }
+        if (swarm.piEnabled) {
+          line += ` | pi≈${Number(swarm.piEstimate || 0).toFixed(8)}`;
+        }
+        contribSummary.textContent = line;
+      };
 
       const updateToast = () => {
         if (!widget || !toastLabel) {
@@ -399,6 +314,38 @@
           toastLabel.innerHTML =
             '<span class="badge">J</span><span>donate some Compute power to Brian - you can give us 20% of your devices compute power to help fnud our research</span>';
         }
+        updateContributionSummary();
+      };
+
+      const refreshProgress = async () => {
+        try {
+          const sessionId = widget && widget.sessionId ? widget.sessionId : "";
+          let url = progressEndpoint;
+          if (sessionId) {
+            const separator = progressEndpoint.includes("?") ? "&" : "?";
+            url = `${progressEndpoint}${separator}sessionId=${encodeURIComponent(sessionId)}`;
+          }
+
+          const response = await fetch(url, { cache: "no-store" });
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const payload = await response.json();
+          const queue = payload.queue || {};
+          const workers = payload.workers || {};
+          const pi = payload.pi || {};
+
+          swarm.done = Number(queue.done || 0);
+          swarm.total = Number(queue.total || 0);
+          swarm.workers = Number(workers.active || 0);
+          swarm.piEnabled = Boolean(pi.enabled);
+          swarm.piEstimate = Number(pi.estimate || 0);
+          updateContributionSummary();
+        } catch (_error) {
+          if (contribSummary) {
+            contribSummary.textContent = `My contribution: ${widget.sessionJoules.toFixed(1)}J | Swarm: unavailable`;
+          }
+        }
       };
 
       toastLabel.addEventListener("click", () => {
@@ -413,110 +360,6 @@
           widget.resume();
         }
       });
-
-      const elapsedAgo = (iso) => {
-        if (!iso) {
-          return "";
-        }
-        const value = Date.parse(iso);
-        if (Number.isNaN(value)) {
-          return "";
-        }
-        const diffSec = Math.max(0, Math.round((Date.now() - value) / 1000));
-        if (diffSec < 60) {
-          return `${diffSec}s ago`;
-        }
-        const mins = Math.floor(diffSec / 60);
-        if (mins < 60) {
-          return `${mins}m ago`;
-        }
-        return `${Math.floor(mins / 60)}h ago`;
-      };
-
-      const renderList = (root, items, fallbackText) => {
-        if (!root) {
-          return;
-        }
-        root.innerHTML = "";
-        if (!Array.isArray(items) || items.length === 0) {
-          const li = document.createElement("li");
-          li.textContent = fallbackText;
-          root.appendChild(li);
-          return;
-        }
-        items.forEach((text) => {
-          const li = document.createElement("li");
-          li.textContent = text;
-          root.appendChild(li);
-        });
-      };
-
-      const refreshProgress = async () => {
-        try {
-          const response = await fetch(progressEndpoint, { cache: "no-store" });
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
-          const payload = await response.json();
-          const queue = payload.queue || {};
-          const workers = payload.workers || {};
-          const pi = payload.pi || {};
-          const total = Number(queue.total || 0);
-          const done = Number(queue.done || 0);
-          const leased = Number(queue.leased || 0);
-          const ready = Number(queue.ready || 0);
-          const activeWorkers = Number(workers.active || 0);
-          const browserWorkers = Number(workers.activeBrowser || 0);
-          const localWorkers = Number(workers.activeLocal || 0);
-
-          metricDone.textContent = String(done);
-          metricLeased.textContent = String(leased);
-          metricReady.textContent = String(ready);
-          metricWorkers.textContent = String(activeWorkers);
-
-          const recentItems = (payload.recentCompletions || []).slice(0, 5).map((item) => {
-            const task = item.taskId || "task";
-            const type = item.workerType || "worker";
-            const elapsed = Number(item.elapsedMs || 0);
-            const age = elapsedAgo(item.submittedAt);
-            return `${task} via ${type} (${elapsed}ms) ${age}`.trim();
-          });
-          renderList(recentList, recentItems, "No completions yet.");
-
-          const leaseItems = (payload.activeLeases || []).slice(0, 5).map((item) => {
-            const task = item.taskId || "task";
-            const type = item.workerType || "worker";
-            const expires = elapsedAgo(item.expiresAt);
-            return `${task} assigned to ${type} (expires ${expires || "soon"})`;
-          });
-          renderList(leasesList, leaseItems, "No active leases.");
-
-          const percent = total > 0 ? Math.round((done / total) * 100) : 0;
-          liveNote.textContent =
-            `Progress ${done}/${total} chunks (${percent}%) - active workers: ${activeWorkers} (${browserWorkers} browser, ${localWorkers} local)`;
-          liveUpdated.textContent = `updated ${elapsedAgo(payload.now) || "just now"}`;
-
-          if (piEstimate) {
-            if (pi.enabled) {
-              const value = Number(pi.estimate || 0);
-              const doneTerms = Number(pi.doneTerms || 0);
-              const totalTerms = Number(pi.totalTerms || 0);
-              const doneTasks = Number(pi.doneTasks || 0);
-              const totalTasks = Number(pi.totalTasks || 0);
-              piEstimate.textContent =
-                `pi ≈ ${value.toFixed(10)} from ${doneTerms.toLocaleString()} / ${totalTerms.toLocaleString()} terms (${doneTasks}/${totalTasks} chunks)`;
-            } else {
-              piEstimate.textContent = "No pi tasks active yet.";
-            }
-          }
-        } catch (error) {
-          liveNote.textContent = `Live feed unavailable: ${error.message}`;
-          liveUpdated.textContent = "retrying...";
-          if (piEstimate) {
-            piEstimate.textContent = "Pi feed unavailable.";
-          }
-        }
-      };
 
       window.setInterval(updateToast, 500);
       window.setInterval(() => {
