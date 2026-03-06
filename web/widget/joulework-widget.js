@@ -122,6 +122,7 @@
       this.retryTimer = null;
       this.manualStop = false;
       this.lastElapsedMs = 0;
+      this.allowBeyondTarget = false;
 
       this.socket = null;
       this.worker = null;
@@ -227,6 +228,9 @@
       if (this.state !== STATE_PAUSED && this.state !== STATE_PAID_SHARE) {
         return;
       }
+      if (this.state === STATE_PAID_SHARE) {
+        this.allowBeyondTarget = true;
+      }
       this.state = STATE_ACTIVE;
       this.renderPill();
       if (!this.connected) {
@@ -242,9 +246,7 @@
       } else if (this.state === STATE_PAUSED) {
         this.resume();
       } else if (this.state === STATE_PAID_SHARE) {
-        this.state = STATE_ACTIVE;
-        this.renderPill();
-        this.requestTask();
+        this.resume();
       }
     }
 
@@ -394,7 +396,7 @@
             this.sessionJoules += (this.lastElapsedMs / 1000) * this.config.estimatedBrowserWatts;
           }
 
-          if (payload.targetReached || this.sessionJoules >= this.config.targetJoules) {
+          if (!this.allowBeyondTarget && (payload.targetReached || this.sessionJoules >= this.config.targetJoules)) {
             this.state = STATE_PAID_SHARE;
             this.renderPill();
             return;

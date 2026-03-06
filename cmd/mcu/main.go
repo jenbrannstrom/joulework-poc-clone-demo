@@ -482,7 +482,7 @@ const rootPageHTML = `<!doctype html>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>JouleWork MCU POC</title>
+    <title>JouleWork Monitor</title>
     <style>
       :root {
         --bg: #0b1117;
@@ -534,12 +534,61 @@ const rootPageHTML = `<!doctype html>
         background: var(--card);
         padding: 9px 10px;
       }
+      .metric-head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
       .metric .k {
-        display: block;
         font-size: 11px;
         color: var(--muted);
         text-transform: uppercase;
         letter-spacing: 0.06em;
+      }
+      .info-dot {
+        position: relative;
+        border: 1px solid #3a596e;
+        background: #122331;
+        color: #bfe5f8;
+        width: 16px;
+        height: 16px;
+        border-radius: 999px;
+        font-size: 10px;
+        line-height: 1;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: help;
+      }
+      .info-dot::after {
+        content: attr(data-tip);
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 8px);
+        min-width: 170px;
+        max-width: 220px;
+        background: #07111a;
+        color: #d9eef8;
+        border: 1px solid #2f485a;
+        border-radius: 8px;
+        padding: 7px 8px;
+        text-transform: none;
+        letter-spacing: normal;
+        font-size: 11px;
+        line-height: 1.35;
+        text-align: left;
+        white-space: normal;
+        opacity: 0;
+        transform: translateY(3px);
+        pointer-events: none;
+        transition: opacity 0.16s ease, transform 0.16s ease;
+        z-index: 20;
+      }
+      .info-dot:hover::after,
+      .info-dot:focus-visible::after {
+        opacity: 1;
+        transform: translateY(0);
       }
       .metric .v {
         display: block;
@@ -606,16 +655,43 @@ const rootPageHTML = `<!doctype html>
   <body>
     <main class="wrap">
       <section class="hero">
-        <h1>JouleWork POC Monitor</h1>
+        <h1>JouleWork Monitor</h1>
         <p>
-          This page shows swarm-level work from the MCU. Reader-facing demo is
+          This page shows swarm-level work from the MCU (Master Coordination Unit).
+        </p>
+        <p>
+          The MCU assigns task leases, accepts results, and tracks compute contribution. Reader-facing demo is
           <a href="http://joulework-demo.rtb.cat/">joulework-demo.rtb.cat</a>.
         </p>
         <div class="grid">
-          <div class="metric"><span class="k">Done</span><span class="v" id="done">0</span></div>
-          <div class="metric"><span class="k">Leased</span><span class="v" id="leased">0</span></div>
-          <div class="metric"><span class="k">Ready</span><span class="v" id="ready">0</span></div>
-          <div class="metric"><span class="k">Workers</span><span class="v" id="workers">0</span></div>
+          <div class="metric">
+            <div class="metric-head">
+              <span class="k">Done</span>
+              <button class="info-dot" type="button" aria-label="Done means completed tasks with accepted results." data-tip="Completed tasks with accepted results persisted by the MCU.">i</button>
+            </div>
+            <span class="v" id="done">0</span>
+          </div>
+          <div class="metric">
+            <div class="metric-head">
+              <span class="k">Leased</span>
+              <button class="info-dot" type="button" aria-label="Leased means tasks currently assigned to workers." data-tip="Tasks currently assigned to workers and still in-flight (not yet submitted).">i</button>
+            </div>
+            <span class="v" id="leased">0</span>
+          </div>
+          <div class="metric">
+            <div class="metric-head">
+              <span class="k">Ready</span>
+              <button class="info-dot" type="button" aria-label="Ready means queued tasks waiting for workers." data-tip="Tasks queued and waiting to be leased to an active worker.">i</button>
+            </div>
+            <span class="v" id="ready">0</span>
+          </div>
+          <div class="metric">
+            <div class="metric-head">
+              <span class="k">Workers</span>
+              <button class="info-dot" type="button" aria-label="Workers means currently connected clients." data-tip="Active browser/local worker connections currently seen by the MCU.">i</button>
+            </div>
+            <span class="v" id="workers">0</span>
+          </div>
         </div>
         <div class="session" id="session-box">Session contribution: add <code>?sessionId=...</code> to this URL.</div>
       </section>
